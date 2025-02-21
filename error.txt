@@ -1,0 +1,45 @@
+python test_kb.py
+
+File type support:
+Supported file types:
+✓ Available:
+  .txt, .md, .pdf, .xlsx, .xls, .docx
+
+
+Creating index...
+Failed to load file data/AI Proof of Concept Upwork Prompt Engineer Jan2025.docx with error: 'function' object has no attribute 'load_data'. Skipping...
+Failed to load file data/test.docx with error: 'function' object has no attribute 'load_data'. Skipping...
+Failed to load file data/test.xlsx with error: 'function' object has no attribute 'load_data'. Skipping...
+
+Indexed documents:
+
+Testing retrieval...
+Error in main: Invalid fusion mode: reciprocal_rank_fusion
+Traceback (most recent call last):
+  File "/xfiles/systests/kb/test_kb.py", line 83, in <module>
+    asyncio.run(main())
+  File "/files/anaconda3/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/files/anaconda3/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/files/anaconda3/lib/python3.11/asyncio/base_events.py", line 653, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/xfiles/systests/kb/test_kb.py", line 64, in main
+    context = await kb.get_relevant_context(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/xfiles/systests/kb/hierarchical_based.py", line 299, in get_relevant_context
+    results = await self.retrieve_relevant_nodes(query_text, similarity_top_k)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/xfiles/systests/kb/hierarchical_based.py", line 277, in retrieve_relevant_nodes
+    nodes = await hybrid_retriever.aretrieve(query_text)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/xfiles/systests/kb/.venv/lib/python3.11/site-packages/llama_index/core/base_retriever.py", line 244, in aretrieve
+    nodes = await self._aretrieve(query_bundle)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/xfiles/systests/kb/.venv/lib/python3.11/site-packages/llama_index/retrievers/fusion_retriever.py", line 209, in _aretrieve
+    raise ValueError(f"Invalid fusion mode: {self.mode}")
+ValueError: Invalid fusion mode: reciprocal_rank_fusion
+
