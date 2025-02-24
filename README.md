@@ -1,135 +1,70 @@
-# Hierarchical Knowledge Base
+# MindRoot Knowledge Base Plugin
 
-A flexible knowledge base that supports hierarchical chunking and multiple file types. Built on LlamaIndex with async support.
+A hierarchical knowledge base plugin for MindRoot that provides vector-based document search and context enrichment for chat interactions.
 
 ## Features
 
-- Hierarchical document chunking
-- Multiple file type support
-- Async operations
-- Progress tracking
-- Atomic updates with rollback
-- Flexible embedding model selection
+- Hierarchical document chunking for better context matching
+- Support for multiple file formats (PDF, Word, Excel, Text, Markdown)
+- Vector-based semantic search using LlamaIndex
+- Automatic chat context enrichment
+- Admin interface for document management
+- Per-user knowledge bases
 
 ## Installation
 
-Basic installation:
 ```bash
-pip install .
+pip install -e .
 ```
 
-With all file type support:
-```bash
-pip install .[all]
-```
+## Usage
 
-With specific file type support:
-```bash
-pip install .[excel,pdf]  # For Excel and PDF support
-pip install .[word]      # For Word document support
+### As a Chat Enhancement
+
+Once installed, the plugin automatically enhances chat interactions by:
+1. Processing user messages
+2. Finding relevant context from stored documents
+3. Enriching messages with this context
+
+### Admin Interface
+
+Access the knowledge base management interface at `/admin/kb` to:
+- Upload new documents
+- View stored documents
+- Delete documents
+- Monitor knowledge base status
+
+### Agent Commands
+
+Agents can interact with the knowledge base using these commands:
+
+```json
+// Query the knowledge base
+{ "query_kb": { "query": "What is the capital of France?" } }
+
+// Add a document
+{ "add_to_kb": { "file_path": "/path/to/document.pdf" } }
 ```
 
 ## Supported File Types
 
-- Text files (.txt) - Always supported
-- Markdown (.md) - Always supported
-- PDF files (.pdf) - Requires PyPDF2
-- Excel files (.xlsx, .xls) - Requires pandas and openpyxl
-- Word documents (.docx) - Requires python-docx
+- PDF files (.pdf)
+- Word documents (.docx)
+- Excel spreadsheets (.xlsx, .xls)
+- Text files (.txt)
+- Markdown files (.md)
 
-## Usage
+## Configuration
 
-```python
-import asyncio
-from kb import HierarchicalKnowledgeBase
+The plugin stores knowledge bases in `/data/kb/{username}/` with each user getting their own isolated knowledge base instance.
 
-async def main():
-# Initialize KB
-kb = HierarchicalKnowledgeBase("./storage")
+## Development
 
-# Check supported file types
-print(kb.supported_types)
+To modify the plugin:
 
-# Create index from directory
-await kb.create_index("./data")
-
-# Add individual document
-await kb.add_document("new_document.pdf")
-
-# Get relevant context without LLM synthesis
-context = await kb.get_relevant_context(
-"your question here",
-similarity_top_k=15,
-format_type="markdown"  # or "plain" or "detailed"
-)
-
-print(context)
-
-if __name__ == "__main__":
-asyncio.run(main())
-```
-
-## Embedding Models
-
-By default, uses OpenAI's embeddings. Can be configured to use other models:
-
-```python
-# Use OpenAI (default)
-kb = HierarchicalKnowledgeBase("./storage")
-
-# Use specific HuggingFace model
-kb = HierarchicalKnowledgeBase(
-"./storage",
-embedding_model="BAAI/bge-small-en-v1.5"
-)
-```
-
-## Document Processing
-
-Documents are processed in a hierarchical manner:
-1. Split into large chunks (2048 chars)
-2. Then medium chunks (512 chars)
-3. Then small chunks (128 chars)
-
-This allows for matching at different granularity levels.
-
-## Progress Tracking
-
-All operations support progress callbacks:
-
-```python
-def progress_callback(progress: float):
-print(f"Processing: {progress * 100:.2f}%")
-
-await kb.create_index("./data", progress_callback=progress_callback)
-```
-
-## Error Handling
-
-All operations use atomic updates with automatic rollback on failure:
-
-```python
-try:
-await kb.add_document("doc.pdf")
-except DocumentProcessingError as e:
-print(f"Failed to add document: {e}")
-# Original index state is preserved
-```
-
-## Requirements
-
-Core requirements:
-- llama-index
-- python-dotenv
-- openai
-- nltk
-- python-magic
-- tiktoken
-
-Optional requirements (for file type support):
-- pandas + openpyxl (Excel files)
-- PyPDF2 (PDF files)
-- python-docx (Word documents)
+1. Make your changes
+2. Run `pip install -e .` to install in development mode
+3. Restart MindRoot to load changes
 
 ## License
 
