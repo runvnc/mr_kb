@@ -1,5 +1,6 @@
 from llama_index import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage, Document
 from llama_index.node_parser import HierarchicalNodeParser
+from llama_index.retrievers import AutoMergingRetriever
 from typing import Dict, List, Optional, AsyncIterator, Callable
 from utils import get_supported_file_types, format_supported_types
 from file_handlers import ExcelReader, DocxReader
@@ -9,6 +10,7 @@ import logging
 from contextlib import contextmanager
 import shutil
 import datetime
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -142,10 +144,7 @@ class HierarchicalKnowledgeBase:
                 file_extractor[".docx"] = DocxReader()
             
             # Skip if index exists and flag is set
-            if skip_if_exists and self.load_if_exists():
-                print("Using existing index")
-                return self.index
-            
+           
             # Load documents with custom handlers
             documents = SimpleDirectoryReader(data_dir, file_extractor=file_extractor).load_data()
             if not documents:
@@ -153,8 +152,18 @@ class HierarchicalKnowledgeBase:
                 
             all_nodes = []
             async for nodes in self.process_documents(documents, progress_callback):
+                print("Processing node..")
                 all_nodes.extend(nodes)
-            
+
+            if skip_if_exists and self.load_if_exists():
+                print("Using existing index")
+                self.index.refresh_ref_docs(documents)
+                self.index.storage_context.persist(persist_dir=self.persist_dir)
+                self._clear_retriever_cache()
+
+                return self.index
+ 
+
             with atomic_index_update(self):
                 self.index = VectorStoreIndex(
                     all_nodes,
@@ -185,7 +194,9 @@ class HierarchicalKnowledgeBase:
         try:
             # Load and process new document
             file_extractor = self._get_file_extractors()
-            documents = SimpleDirectoryReader(input_files=[file_path], file_extractor=file_extractor).load_data()
+            documents = SimpleDirectoryReader(input_files=[file_path], 
+                                              filename_as_id=True,
+                                              file_extractor=file_extractor).load_data()
             
             if not documents:
                 raise ValueError(f"No content found in {file_path}")
@@ -271,40 +282,59 @@ class HierarchicalKnowledgeBase:
         if not self.index:
             return []
             
-        docs_info = []
+        docs_info = {}
         seen_doc_ids = set()
-        
-        for node_id, node in self.index.docstore.docs.items():
-            if hasattr(node, 'relationships') and hasattr(node.relationships, 'source'):
-                doc_id = node.relationships.source.node_id
-                if doc_id not in seen_doc_ids:
-                    doc = self.index.docstore.docs[doc_id]
-                    # Count nodes at each level
-                    level_counts = {size: 0 for size in self.chunk_sizes}
-                    for n in self.index.docstore.docs.values():
-                        if (hasattr(n, 'relationships') and 
-                            hasattr(n.relationships, 'source') and
-                            n.relationships.source.node_id == doc_id):
-                            # Approximate which level this node belongs to
-                            node_size = len(n.text)
-                            for size in self.chunk_sizes:
-                                if node_size <= size:
-                                    level_counts[size] += 1
-                                    break
-                    
-                    docs_info.append({
-                        'doc_id': doc_id,
-                        'filename': doc.metadata.get('file_name', 'Unknown'),
-                        'file_path': doc.metadata.get('file_path', 'Unknown'),
-                        'creation_date': doc.metadata.get('creation_date', 'Unknown'),
-                        'level_counts': level_counts,
-                        'total_nodes': sum(level_counts.values())
-                    })
-                    seen_doc_ids.add(doc_id)
-        
+
+        for id, doc in self.index.docstore.docs.items():
+            print(id, doc.metadata)
+            if doc.metadata['file_path'] not in docs_info:
+                docs_info[doc.metadata['file_path']] = doc.metadata
+            print("--------------------------------------------------------------------")
+        # convert from dict to list
+        as_list = []
+        for k, v in docs_info.items():
+            as_list.append(v)
+        return as_list
+
+        for node_id, node in self.index.docstore.docs.items(): #.docstore.docs.items():
+            print(node_id, node)
+            x="""
+            if True or hasattr(node, 'relationships') and hasattr(node.relationships, 'source'):
+                try:
+                    doc_id = node.relationships.source.node_id
+                    if doc_id not in seen_doc_ids:
+                        doc = self.index.docstore.docs[doc_id]
+                        # Count nodes at each level
+                        level_counts = {size: 0 for size in self.chunk_sizes}
+                        for n in self.index.docstore.docs.values():
+                            if (hasattr(n, 'relationships') and 
+                                hasattr(n.relationships, 'source') and
+                                n.relationships.source.node_id == doc_id):
+                                # Approximate which level this node belongs to
+                                node_size = len(n.text)
+                                for size in self.chunk_sizes:
+                                    if node_size <= size:
+                                        level_counts[size] += 1
+                                        break
+                        
+                        docs_info.append({
+                            'doc_id': doc_id,
+                            'filename': doc.metadata.get('file_name', 'Unknown'),
+                            'file_path': doc.metadata.get('file_path', 'Unknown'),
+                            'creation_date': doc.metadata.get('creation_date', 'Unknown'),
+                            'level_counts': level_counts,
+                            'total_nodes': sum(level_counts.values())
+                        })
+                        seen_doc_ids.add(doc_id)
+                except Exception as e:
+                    pass
+                    #logger.error(f"Failed to get document info: {str(e)}")
+                    #    raise DocumentProcessingError(f"Document info retrieval failed: {str(e)}") from e
+                """
+
         return docs_info
     
-    async def query(self, query_text: str, similarity_top_k: int = 15):
+    async def query(self, query_text: str, similarity_top_k: int = 12):
         """Query the index."""
         if not self.index:
             raise ValueError("Index not initialized.")
@@ -345,7 +375,11 @@ class HierarchicalKnowledgeBase:
 
         # Use cached retriever or create new one
         if self._retriever is None:
-            self._retriever = self.index.as_retriever(similarity_top_k=similarity_top_k)
+            self._retriever = AutoMergingRetriever(
+                self.index.as_retriever(similarity_top_k=similarity_top_k),
+                storage_context=self.index.storage_context
+            )
+            #self._retriever = self.index.as_retriever(similarity_top_k=similarity_top_k)
             print(f"Created new retriever: {datetime.datetime.now() - retriever_start}")
         else:
             print("Using cached retriever")

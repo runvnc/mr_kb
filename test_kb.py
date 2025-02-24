@@ -1,7 +1,6 @@
 import asyncio
 import os
 from dotenv import load_dotenv
-from hierarchical_based import HierarchicalKnowledgeBase
 from vector_only_kb import HierarchicalKnowledgeBase as VectorKnowledgeBase
 from utils import format_supported_types
 import shutil
@@ -55,12 +54,12 @@ async def main():
             print("\nIndexed documents:")
             docs = kb.get_document_info()
             for doc in docs:
-                print(f"\nDocument: {doc['filename']}")
-                print(f"Total nodes: {doc['total_nodes']}")
-                print("Nodes per level:")
-                for size, count in doc['level_counts'].items():
-                    print(f"  Chunk size {size}: {count} nodes")
-            
+                print(f"\nDocument: {doc['file_path']}")
+                #print(f"Total nodes: {doc['total_nodes']}")
+                #print("Nodes per level:")
+                #for size, count in doc['level_counts'].items():
+                #    print(f"  Chunk size {size}: {count} nodes")
+            return 
             total_time = 0
             creation_queries = 0
             reuse_queries = 0
@@ -70,7 +69,8 @@ async def main():
                 "Tell me about the text file contents",
                 "What's in the Excel file?",
                 "Describe the Word document",
-                "What types of files are supported?",  # Repeat first query to test caching
+                "What types of files are supported?",
+                "What's the property address?"
             ]
             
             print("\nTesting multiple retrievals...")
@@ -80,6 +80,7 @@ async def main():
                     query,
                     format_type="detailed"
                 )
+                print(context)
                 # Skip printing context, just show query number and stats
                 print("=" * 40 + "\n")
                 
