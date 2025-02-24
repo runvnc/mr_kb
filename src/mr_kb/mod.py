@@ -10,7 +10,7 @@ import datetime
 _kb_instances = {}
 
 # KB metadata file
-KB_METADATA_FILE = "/data/kb/metadata.json"
+KB_METADATA_FILE = "data/kb/metadata.json"
 
 def load_kb_metadata():
     """Load metadata about all KBs"""
