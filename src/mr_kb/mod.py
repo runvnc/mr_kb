@@ -32,7 +32,7 @@ async def create_kb(name: str, description: str = ""):
     if name in metadata:
         raise ValueError(f"Knowledge base '{name}' already exists")
 
-    storage_dir = f"/data/kb/bases/{name}"
+    storage_dir = f"data/kb/bases/{name}"
     os.makedirs(storage_dir, exist_ok=True)
 
     kb = HierarchicalKnowledgeBase(storage_dir)
