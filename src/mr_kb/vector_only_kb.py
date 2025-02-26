@@ -3,7 +3,7 @@ from llama_index.core.readers import SimpleDirectoryReader
 from llama_index.core.storage import StorageContext
 from llama_index.core import Document, load_index_from_storage
 from llama_index.core.node_parser import HierarchicalNodeParser
-#from llama_index.retrievers import AutoMergingRetriever
+from llama_index.retrievers import AutoMergingRetriever
 from typing import Dict, List, Optional, AsyncIterator, Callable
 from .utils import get_supported_file_types, format_supported_types
 from .file_handlers import ExcelReader, DocxReader
@@ -271,7 +271,7 @@ class HierarchicalKnowledgeBase:
         return self.index
     
     async def add_document(self, file_path: str, 
-                          progress_callback: Optional[Callable] = None,
+                          progress_callback: Optional[Callable[[float], None]] = None,
                           refresh_mode: bool = True):
         """Add a single new document to the index.
         
@@ -293,6 +293,9 @@ class HierarchicalKnowledgeBase:
             if not documents:
                 raise ValueError(f"No content found in {file_path}")
             
+            # Call progress callback with initial progress
+            if progress_callback:
+                progress_callback(0.1)  # 10% progress for loading document
             if refresh_mode:
                 # Use refresh_ref_docs for automatic updates
                 self.index.refresh_ref_docs(documents)
@@ -301,6 +304,10 @@ class HierarchicalKnowledgeBase:
             else:
                 # Use traditional insert method
                 await self._add_document_insert(file_path, progress_callback)
+            
+            # Call progress callback with completion
+            if progress_callback:
+                progress_callback(1.0)  # 100% progress for completion
 
         except Exception as e:
             logger.error(f"Failed to add document: {str(e)}")
@@ -325,6 +332,10 @@ class HierarchicalKnowledgeBase:
             all_nodes = []
             async for nodes in self.process_documents(documents, progress_callback):
                 all_nodes.extend(nodes)
+                
+                # Update progress callback for processing phase (10%-90%)
+                if progress_callback:
+                    progress_callback(0.1 + (0.8 * len(all_nodes) / (len(documents) * 3)))  # Estimate progress
             
             # Update index atomically
             with atomic_index_update(self):
@@ -470,11 +481,11 @@ class HierarchicalKnowledgeBase:
 
             # Use cached retriever or create new one
             if self._retriever is None:
-                #self._retriever = AutoMergingRetriever(
-                #    self.index.as_retriever(similarity_top_k=similarity_top_k),
-                #    storage_context=self.index.storage_context
-                #)
-                self._retriever = self.index.as_retriever(similarity_top_k=similarity_top_k)
+                self._retriever = AutoMergingRetriever(
+                    self.index.as_retriever(similarity_top_k=similarity_top_k),
+                    storage_context=self.index.storage_context
+                )
+                #self._retriever = self.index.as_retriever(similarity_top_k=similarity_top_k)
                 print(f"Created new retriever: {datetime.datetime.now() - retriever_start}")
             else:
                 print("Using cached retriever")

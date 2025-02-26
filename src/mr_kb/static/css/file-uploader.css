@@ -1,0 +1,142 @@
+/* File Uploader Component Styles */
+
+:host {
+  display: block;
+  width: 100%;
+}
+
+.upload-zone {
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-bottom: 15px;
+}
+
+.upload-zone:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.upload-progress-container {
+  background: rgba(10, 10, 25, 0.5);
+  border-radius: 8px;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 15px;
+}
+
+.upload-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.upload-header h4 {
+  margin: 0;
+}
+
+.overall-progress {
+  margin-bottom: 15px;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 0.9em;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #4a9eff;
+  transition: width 0.3s ease;
+}
+
+.file-progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.file-item {
+  display: grid;
+  grid-template-columns: 3fr 4fr 2fr 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.file-item.complete {
+  background: rgba(0, 255, 0, 0.05);
+}
+
+.file-item.error {
+  background: rgba(255, 0, 0, 0.05);
+}
+
+.file-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.file-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-meta {
+  font-size: 0.8em;
+  opacity: 0.7;
+}
+
+.file-status {
+  font-size: 0.9em;
+}
+
+.file-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.file-actions button {
+  padding: 3px 8px;
+  font-size: 0.8em;
+  background: #2a2a40;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.file-actions button.cancel {
+  background: #402a2a;
+}
+
+.file-actions button:hover {
+  background: #3a3a50;
+}
+
+.file-actions button.cancel:hover {
+  background: #503a3a;
+}
+
+.error-message {
+  color: #ff6b6b;
+}

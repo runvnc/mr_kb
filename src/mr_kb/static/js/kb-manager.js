@@ -1,5 +1,6 @@
 import { LitElement, html, css } from '/admin/static/js/lit-core.min.js';
 import { BaseEl } from '/admin/static/js/base.js';
+import './file-uploader.js';
 
 class KnowledgeBaseManager extends BaseEl {
   static properties = {
@@ -67,19 +68,6 @@ class KnowledgeBaseManager extends BaseEl {
       margin: 5px 0;
       font-size: 0.9em;
       opacity: 0.8;
-    }
-
-    .upload-zone {
-      border: 2px dashed rgba(255, 255, 255, 0.2);
-      padding: 20px;
-      text-align: center;
-      cursor: pointer;
-      transition: all 0.3s ease;
-    }
-
-    .upload-zone:hover {
-      border-color: rgba(255, 255, 255, 0.4);
-      background: rgba(255, 255, 255, 0.05);
     }
 
     .doc-list {
@@ -257,39 +245,17 @@ class KnowledgeBaseManager extends BaseEl {
     }
   }
 
-  async handleUpload(e) {
-    if (!this.selectedKb) {
-      this.uploadStatus = 'Please select a knowledge base first';
-      return;
-    }
+  handleUploadStarted(e) {
+    this.uploadStatus = 'Upload started...';
+  }
 
-    const files = e.target.files || e.dataTransfer.files;
-    if (!files.length) return;
+  handleUploadComplete(e) {
+    this.uploadStatus = `Successfully uploaded ${e.detail.fileName}`;
+    this.fetchDocuments();
+  }
 
-    this.uploadStatus = 'Uploading...';
-    
-    for (const file of files) {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        const response = await fetch(`/api/kb/${this.selectedKb}/upload`, {
-          method: 'POST',
-          body: formData
-        });
-
-        const result = await response.json();
-        if (result.success) {
-          this.uploadStatus = `Successfully uploaded ${file.name}`;
-          await this.fetchDocuments();
-        } else {
-          throw new Error(result.message);
-        }
-      } catch (error) {
-        this.uploadStatus = `Failed to upload ${file.name}: ${error.message}`;
-        console.error('Upload error:', error);
-      }
-    }
+  handleUploadError(e) {
+    this.uploadStatus = e.detail.message || 'Upload failed';
   }
 
   async deleteDocument(docId) {
@@ -344,23 +310,16 @@ class KnowledgeBaseManager extends BaseEl {
           </div>
 
           ${this.selectedKb ? html`
-            <!-- Upload Section -->
-            <div class="upload-zone" 
-                 @click=${() => this.shadowRoot.querySelector('input[type="file"]').click()}
-                 @dragover=${e => e.preventDefault()}
-                 @drop=${e => {
-                   e.preventDefault();
-                   this.handleUpload(e);
-                 }}>
-              <input type="file" 
-                     style="display: none"
-                     @change=${this.handleUpload}
-                     multiple>
-              <p>Drop files here or click to upload to "${this.selectedKb}"</p>
-            </div>
+            <!-- File Uploader Component -->
+            <file-uploader 
+              .kbName=${this.selectedKb}
+              @upload-started=${this.handleUploadStarted}
+              @upload-complete=${this.handleUploadComplete}
+              @upload-error=${this.handleUploadError}>
+            </file-uploader>
 
             ${this.uploadStatus ? html`
-              <div class="status ${this.uploadStatus.includes('Failed') ? 'error' : 'success'}">
+              <div class="status ${this.uploadStatus.includes('failed') || this.uploadStatus.includes('Failed') ? 'error' : 'success'}">
                 ${this.uploadStatus}
               </div>
             ` : ''}

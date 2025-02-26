@@ -22,7 +22,9 @@ setup(
         "mr_kb": [
             "templates/*.jinja2",
             "inject/*.jinja2",
-            "static/js/*.js"
+            "static/js/*.js",
+            "static/css/*.css",
+            "static/*.md"
         ],
     },
     python_requires='>=3.8',
