@@ -12,6 +12,7 @@ from contextlib import contextmanager
 import shutil
 import datetime
 import json
+from lib.utils.debug import debug_box
 
 def apply_minimum_content_threshold(text, score, min_length=20):
     """Penalize documents that are too short to be meaningful."""
@@ -53,7 +54,10 @@ def boost_for_exact_matches(query_text, node_text, base_score):
     # Apply boost based on match ratio
     if important_terms:
         match_ratio = match_count / len(important_terms)
-        boost_factor = 1 + (match_ratio * 0.6)  # Up to 60% boost
+        debug_box(f"Important terms: {important_terms}")
+        debug_box(f"Match count {match_count} Match ratio {match_ratio}")
+        print(f"Match ratio: {match_ratio}")
+        boost_factor = 1.0 + (match_ratio * 0.5)  # Up to 60% boost
         return min(base_score * boost_factor, 1.0)
     return base_score
 
