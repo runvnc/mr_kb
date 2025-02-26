@@ -19,9 +19,9 @@ MIN_TERM_LENGTH = 3             # Minimum length of terms to consider important
 MAX_DISTANCE_FOR_PROXIMITY = 100  # Maximum character distance for proximity calculation
 
 # Boost factors
-COVERAGE_BOOST = 0.3            # Boost factor for term coverage
-DENSITY_BOOST = 0.3             # Boost factor for term density
-PHRASE_MATCH_BOOST = 0.4        # Boost factor for phrase matches
+COVERAGE_BOOST = 0.25            # Boost factor for term coverage
+DENSITY_BOOST = 0.25             # Boost factor for term density
+PHRASE_MATCH_BOOST = 0.35        # Boost factor for phrase matches
 FILENAME_MATCH_BOOST = 1.2      # Boost factor for filename matches
 FILE_TYPE_BOOST = 1.15          # Boost factor for relevant file types
 
