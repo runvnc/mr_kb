@@ -71,6 +71,7 @@ class KbSettings extends BaseEl {
 
   constructor() {
     super();
+    console.log("Constructor for kb settings")
     this.kbs = [];
     this.selectedKbs = [];
     this.loading = true;
@@ -199,6 +200,7 @@ class KbSettings extends BaseEl {
   }
 
   _render() {
+    console.log("Rendering kb settings")
     if (this.loading) {
       return html`<div class="kb-section"><p>Loading knowledge bases...</p></div>`;
     }
