@@ -461,7 +461,7 @@ class HierarchicalKnowledgeBase:
         debug_box("Starting retrieval")
         if not self.index:
             raise ValueError("Index not initialized.")
-        dispatcher.event(RetrievalStartEvent(query=query_text))
+        dispatcher.event(RetrievalStartEvent(str_or_query_bundle=query_text))
         
         retriever_start = datetime.datetime.now()
 
@@ -507,7 +507,7 @@ class HierarchicalKnowledgeBase:
         # Re-sort by adjusted scores
         enhanced_results.sort(key=lambda x: x[2], reverse=True)
 
-        dispatcher.event(RetrievalEndEvent(query=query_text))
+        dispatcher.event(RetrievalEndEvent(str_or_query_bundle=query_text))
 
         return enhanced_results
     
