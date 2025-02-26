@@ -501,7 +501,7 @@ class HierarchicalKnowledgeBase:
                     node.score,
                     len(node.node.text)) for node in nodes]
 
-            raw_results = [r for r in results if r[2] >= min_score]
+            raw_results = [r for r in raw_results if r[2] >= min_score]
              
             # Apply enhanced keyword matching and filtering
             enhanced_results = enhance_search_results(query_text, raw_results, 
