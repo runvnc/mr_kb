@@ -1,3 +1,5 @@
+console.log("hi from kb-manager.js");
+
 import { LitElement, html, css } from '/admin/static/js/lit-core.min.js';
 import { BaseEl } from '/admin/static/js/base.js';
 import './file-uploader.js';
@@ -360,5 +362,7 @@ class KnowledgeBaseManager extends BaseEl {
     `;
   }
 }
+
+console.log("Registering kb-manager");
 
 customElements.define('knowledge-base-manager', KnowledgeBaseManager);
