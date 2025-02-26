@@ -135,6 +135,12 @@ async def add_to_kb_cmd(name: str, file_path: str, context=None):
 @pipe(name='pre_process_msg', priority=10)
 async def enrich_with_kb(data: dict, context=None) -> dict:
     """Add relevant knowledge base context to messages"""
+
+    # get the name of the agent from the context
+    # find the kbs that the agent is set to use
+    # only query those kbs
+    agent_name = context.agent_name
+
     if not data.get('message'):
         return data
         
@@ -157,7 +163,7 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
                 kb = await get_kb_instance(kb_name)
                 context_data = await kb.get_relevant_context(
                     query_text,
-                    similarity_top_k=3,  # Fewer results per KB since we're querying multiple
+                    similarity_top_k=12,  # Fewer results per KB since we're querying multiple
                     format_type="markdown"
                 )
                 if context_data:

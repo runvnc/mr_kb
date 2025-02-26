@@ -379,7 +379,7 @@ class KnowledgeBaseManager extends BaseEl {
               <tbody>
                 ${this.documents.map(doc => html`
                   <tr>
-                    <td>${doc.filename}</td>
+                    <td>${doc.file_name}</td>
                     <td>${doc.file_type}</td>
                     <td>${new Date(doc.creation_date).toLocaleString()}</td>
                     <td>${doc.size}</td>
