@@ -5,6 +5,7 @@ from .vector_only_kb import HierarchicalKnowledgeBase
 import os
 import json
 import datetime
+from lib.utils.debug import debug_box
 
 # Global KB instances cache
 _kb_instances = {}
@@ -29,23 +30,29 @@ def save_kb_metadata(metadata):
 async def create_kb(name: str, description: str = ""):
     """Create a new knowledge base"""
     metadata = load_kb_metadata()
+    debug_box("create_kb")
     if name in metadata:
         raise ValueError(f"Knowledge base '{name}' already exists")
-
+    
+    print(1)
     storage_dir = f"data/kb/bases/{name}"
     os.makedirs(storage_dir, exist_ok=True)
-
+    print(2)
     kb = HierarchicalKnowledgeBase(storage_dir)
+    print(3)
     await kb.create_index(storage_dir)
+    print(4)
     _kb_instances[name] = kb
-
+    print(5)
     metadata[name] = {
         "name": name,
         "description": description,
         "created_at": str(datetime.datetime.now()),
         "storage_dir": storage_dir
     }
+    print(6)
     save_kb_metadata(metadata)
+    print(7)
     return metadata[name]
 
 @service()
