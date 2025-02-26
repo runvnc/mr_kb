@@ -7,8 +7,8 @@ and create better differentiation between highly relevant documents.
 
 import math
 
-# No hard ceiling for scores - allow them to exceed 1.0 for testing
-MAX_SCORE_CEILING = float('inf')
+# Set a reasonable ceiling for scores
+MAX_SCORE_CEILING = 2.0
 
 def apply_logarithmic_boost(base_score, boost_factor):
     """
@@ -28,8 +28,11 @@ def apply_logarithmic_boost(base_score, boost_factor):
     # This creates a more gradual increase for higher boost values
     scaled_boost = 1.0 + (math.log1p(boost_factor - 1.0) * 0.3)
     
-    # Return the raw boosted score without capping
-    return base_score * scaled_boost
+    # Apply the scaled boost to the base score
+    adjusted_score = base_score * scaled_boost
+    
+    # Apply a reasonable ceiling
+    return min(adjusted_score, MAX_SCORE_CEILING)
 
 def normalize_scores(results):
     """
@@ -56,7 +59,7 @@ def normalize_scores(results):
     for text, metadata, score, chunk_size in results:
         # Keep the top result close to its original score but cap at ceiling
         if score == max_score:
-            normalized_score = score  # No capping
+            normalized_score = min(score, MAX_SCORE_CEILING)
         else:
             # Create more separation between scores
             # Map other scores to maintain their relative ordering
@@ -116,7 +119,7 @@ def apply_z_score_normalization(results):
         # Convert to z-score and then to a 0-1 scale
         z_score = (score - mean) / std_dev
         # Map z-scores (typically z-scores of -3 to +3 cover 99.7% of data)
-        normalized_score = max((z_score + 3) / 6, 0)  # No upper limit
+        normalized_score = min(max((z_score + 3) / 6, 0), MAX_SCORE_CEILING)
         normalized_results.append((text, metadata, normalized_score, chunk_size))
     
     return normalized_results
