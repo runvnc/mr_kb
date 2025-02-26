@@ -5,82 +5,12 @@ from typing import Dict, List, Optional, AsyncIterator, Callable
 from .utils import get_supported_file_types, format_supported_types
 from .file_handlers import ExcelReader, DocxReader
 import os
-import re
 import asyncio
 import logging
 from contextlib import contextmanager
 import shutil
 import datetime
 import json
-
-def apply_minimum_content_threshold(text, score, min_length=20):
-    """Penalize documents that are too short to be meaningful."""
-    if len(text) < min_length:
-        penalty = 0.5 * (len(text) / min_length)
-        return score * penalty
-    return score
-
-def normalize_by_length(score, text_length, max_length=5000):
-    """Normalize score based on document length to prevent bias toward longer docs."""
-    # Penalize very short documents (might be noise) and very long documents
-    length_factor = min(text_length, max_length) / max_length
-    # Apply a sigmoid-like normalization that favors mid-length documents
-    length_adjustment = (4 * length_factor * (1 - length_factor)) ** 0.5
-    return score * length_adjustment
-
-def boost_for_exact_matches(query_text, node_text, base_score):
-    """Boost scores for documents with exact matches of important terms."""
-    # Extract important terms (non-stopwords)
-    # Simple stopwords list for demonstration
-    stop_words = {'a', 'an', 'the', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 
-                  'be', 'been', 'being', 'in', 'on', 'at', 'to', 'for', 'with', 
-                  'by', 'about', 'against', 'between', 'into', 'through', 'during', 
-                  'before', 'after', 'above', 'below', 'from', 'up', 'down', 'of', 
-                  'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 
-                  'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 
-                  'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 
-                  'only', 'own', 'same', 'so', 'than', 'too', 'very', 'can', 'will', 
-                  'just', 'should', 'now'}
-    
-    # Extract important terms from query
-    important_terms = [term.lower() for term in re.findall(r'\b\w+\b', query_text) 
-                      if term.lower() not in stop_words and len(term) > 3]
-    
-    # Count exact matches in document
-    match_count = sum(1 for term in important_terms if re.search(r'\b' + re.escape(term) + r'\b', 
-                                                               node_text.lower()))
-    
-    # Apply boost based on match ratio
-    if important_terms:
-        match_ratio = match_count / len(important_terms)
-        boost_factor = 1 + (match_ratio * 0.3)  # Up to 30% boost
-        return min(base_score * boost_factor, 1.0)
-    return base_score
-
-def adjust_score_by_metadata(metadata, query_text, base_score):
-    """Adjust score based on document metadata."""
-    file_name = metadata.get('file_name', '').lower()
-    file_type = metadata.get('file_type', '').lower()
-    
-    # Extract key terms from query
-    query_terms = set(query_text.lower().split())
-    
-    # Check if filename contains query terms
-    filename_match = any(term in file_name for term in query_terms if len(term) > 3)
-    
-    # Boost for relevant file types (e.g., PDF for forms)
-    file_type_boost = 1.0
-    if 'form' in query_text.lower() and 'pdf' in file_type:
-        file_type_boost = 1.15
-    
-    # Apply boosts
-    adjusted_score = base_score
-    if filename_match:
-        adjusted_score *= 1.2  # 20% boost for filename match
-    
-    adjusted_score *= file_type_boost
-    
-    return min(adjusted_score, 1.0)  # Cap at 1.0
 
 logger = logging.getLogger(__name__)
 
@@ -458,34 +388,11 @@ class HierarchicalKnowledgeBase:
         print(f"Total retriever setup time: {retriever_end - retriever_start}")
         
         nodes = await self._retriever.aretrieve(query_text)
-        
-        # Get raw results
-        raw_results = [(node.node.text, 
+
+        return [(node.node.text, 
                  node.node.metadata,
                  node.score,
                  len(node.node.text)) for node in nodes]
-        
-        # Apply score adjustments
-        enhanced_results = []
-        for node_text, metadata, score, chunk_size in raw_results:
-            # Penalize very short documents
-            adjusted_score = apply_minimum_content_threshold(node_text, score)
-            
-            # Boost for exact keyword matches
-            adjusted_score = boost_for_exact_matches(query_text, node_text, adjusted_score)
-            
-            # Normalize by length to prevent bias toward very long documents
-            adjusted_score = normalize_by_length(adjusted_score, len(node_text))
-            
-            # Apply metadata-based adjustments
-            adjusted_score = adjust_score_by_metadata(metadata, query_text, adjusted_score)
-            
-            enhanced_results.append((node_text, metadata, adjusted_score, chunk_size))
-        
-        # Re-sort by adjusted scores
-        enhanced_results.sort(key=lambda x: x[2], reverse=True)
-
-        return enhanced_results
     
     async def get_relevant_context(self, query_text: str, 
                             similarity_top_k: int = 15,
