@@ -210,8 +210,6 @@ def integrated_keyword_matching(query_text: str, node_text: str, base_score: flo
     if debug:
         logger.debug(f"Important terms: {important_terms}")
         logger.debug(f"Term frequencies: {term_frequencies}")
-        logger.debug(f"Coverage: {coverage_ratio:.2f}, Density: {density_factor:.2f}, "
-                    f"Proximity: {proximity_score:.2f}, Phrase: {phrase_score:.2f}")
         logger.debug(f"Coverage: {coverage_ratio:.2f}, Density: {density_factor:.2f}, Proximity: {proximity_score:.2f}, Phrase: {phrase_score:.2f}")
         logger.debug(f"Raw boost: {raw_boost:.2f}, Adjusted score: {adjusted_score:.2f}")
     
@@ -285,7 +283,8 @@ def adjust_score_by_metadata(metadata: Dict, query_text: str, base_score: float)
     
     adjusted_score *= file_type_boost
     
-    return min(adjusted_score, 1.0)  # Cap at 1.0
+    # Return adjusted score without capping
+    return adjusted_score  # No capping
 
 def enhance_search_results(query_text: str, 
                           raw_results: List[Tuple[str, Dict, float, int]],
