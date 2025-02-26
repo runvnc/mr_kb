@@ -552,7 +552,7 @@ class HierarchicalKnowledgeBase:
             context += "\n\n".join(text for text, _, _, _ in results)
         else:  # detailed
             context = "### [Retrieved Knowledge Base Results]\n"
-            context += "Note: Results are ranked by relevance score (0-1). Higher scores indicate stronger matches.\n"
+            context += "Note: Results are ranked by relevance score. Higher scores indicate stronger matches.\n"
             context += "Some results with lower scores may be less relevant or unrelated to user query.\n\n"
             context += "=" * 80 + "\n\n"  # Distinctive separator at start
 
