@@ -22,6 +22,8 @@ function insertKBSettings() {
 
 const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
+        console.log("kbsettings mutation observer")
+        console.log(mutation)
         mutation.addedNodes.forEach((node) => {
             if (node.nodeName === 'AGENT-FORM') {
                 // Wait for shadow DOM to be created
