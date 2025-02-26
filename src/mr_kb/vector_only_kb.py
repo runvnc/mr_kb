@@ -475,7 +475,7 @@ class HierarchicalKnowledgeBase:
             adjusted_score = boost_for_exact_matches(query_text, node_text, adjusted_score)
             
             # Normalize by length to prevent bias toward very long documents
-            adjusted_score = normalize_by_length(adjusted_score, len(node_text))
+            #adjusted_score = normalize_by_length(adjusted_score, len(node_text))
             
             # Apply metadata-based adjustments
             adjusted_score = adjust_score_by_metadata(metadata, query_text, adjusted_score)
