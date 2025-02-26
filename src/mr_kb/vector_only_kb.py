@@ -1,4 +1,4 @@
-from llama_index import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage, Document
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage, Document
 from llama_index.node_parser import HierarchicalNodeParser
 from llama_index.retrievers import AutoMergingRetriever
 from typing import Dict, List, Optional, AsyncIterator, Callable
