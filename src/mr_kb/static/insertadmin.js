@@ -33,7 +33,15 @@ const observer = new MutationObserver((mutations) => {
     })
 })
 
+console.log("hi from insert admin kb settings agent kb")
 const agentEditor = document.querySelector('agent-editor');
+console.log({agentEditor})
+const shadowRoot = agentEditor.shadowRoot;
+console.log({shadowRoot})
+if (shadowRoot) {
+  console.log("FOUND SHADOW ROOT for agent editor")
+}
+
 observer.observe(agentEditor.shadowRoot, {
     childList: true,
     subtree: true
