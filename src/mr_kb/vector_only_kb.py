@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, AsyncIterator, Callable
 from .utils import get_supported_file_types, format_supported_types
 from .file_handlers import ExcelReader, DocxReader
 import os
+from .keyword_matching.enhanced_matching import enhance_search_results
 import re
 import asyncio
 import logging
@@ -74,7 +75,7 @@ def boost_for_exact_matches(query_text, node_text, base_score):
         debug_box(f"Important terms: {important_terms}")
         debug_box(f"Match count {match_count} Match ratio {match_ratio}")
         print(f"Match ratio: {match_ratio}")
-        boost_factor = 1.0 + (match_ratio * 0.5)  # Up to 60% boost
+        boost_factor = 1.0 + (match_ratio * 0.3)  # Up to 60% boost
         return min(base_score * boost_factor, 1.0)
     return base_score
 
@@ -453,7 +454,7 @@ class HierarchicalKnowledgeBase:
         print("Cleared retriever cache")
 
     @dispatcher.span
-    async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15):
+    async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15, final_top_k: int = 6):
         """Get raw retrieval results without LLM synthesis.
         
         Returns:
@@ -489,25 +490,10 @@ class HierarchicalKnowledgeBase:
                     node.score,
                     len(node.node.text)) for node in nodes]
             
-            # Apply score adjustments
-            enhanced_results = []
-            for node_text, metadata, score, chunk_size in raw_results:
-                # Penalize very short documents
-                adjusted_score = apply_minimum_content_threshold(node_text, score)
-                
-                # Boost for exact keyword matches
-                adjusted_score = boost_for_exact_matches(query_text, node_text, adjusted_score)
-                
-                # Normalize by length to prevent bias toward very long documents
-                adjusted_score = normalize_by_length(adjusted_score, len(node_text))
-                
-                # Apply metadata-based adjustments
-                adjusted_score = adjust_score_by_metadata(metadata, query_text, adjusted_score)
-                
-                enhanced_results.append((node_text, metadata, adjusted_score, chunk_size))
-            
-            # Re-sort by adjusted scores
-            enhanced_results.sort(key=lambda x: x[2], reverse=True)
+            # Apply enhanced keyword matching and filtering
+            enhanced_results = enhance_search_results(query_text, raw_results, 
+                                                    initial_top_k=similarity_top_k,
+                                                    final_top_k=final_top_k)
 
         except Exception as e:
             trace = traceback.format_exc()
@@ -519,7 +505,8 @@ class HierarchicalKnowledgeBase:
     
     async def get_relevant_context(self, query_text: str, 
                             similarity_top_k: int = 15,
-                            format_type: str = "detailed",
+                            final_top_k: int = 6,
+                            format_type: str = "detailed", 
                             min_score: float = 0.65) -> str:
         """Get formatted context from relevant nodes.
         
@@ -527,6 +514,7 @@ class HierarchicalKnowledgeBase:
             query_text: The query to match against
             similarity_top_k: Number of matches to retrieve
             format_type: How to format output ('markdown', 'plain', or 'detailed')
+            final_top_k: Number of results to return after score enhancement
             min_score: Minimum similarity score to include (0.0 to 1.0)
         
         Returns:
@@ -536,7 +524,7 @@ class HierarchicalKnowledgeBase:
         # start timing
         start_time = datetime.datetime.now()
 
-        results = await self.retrieve_relevant_nodes(query_text, similarity_top_k)
+        results = await self.retrieve_relevant_nodes(query_text, similarity_top_k, final_top_k)
         
         # Filter by minimum score
         results = [r for r in results if r[2] >= min_score]
