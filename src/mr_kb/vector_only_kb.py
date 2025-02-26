@@ -507,7 +507,7 @@ class HierarchicalKnowledgeBase:
         # Re-sort by adjusted scores
         enhanced_results.sort(key=lambda x: x[2], reverse=True)
 
-        dispatcher.event(RetrievalEndEvent(query_text)
+        dispatcher.event(RetrievalEndEvent(query_text))
 
         return enhanced_results
     
