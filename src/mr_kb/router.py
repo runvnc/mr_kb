@@ -55,7 +55,7 @@ async def upload_document(name: str, file: UploadFile = File(...), request: Requ
     try:
         # Create temp file with original extension
         suffix = os.path.splitext(file.filename)[1]
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, prefix=file.filename, suffix=suffix) as tmp:
             content = await file.read()
             tmp.write(content)
             temp_path = tmp.name
