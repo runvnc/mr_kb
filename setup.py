@@ -6,7 +6,7 @@ setup(
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     install_requires=[
-        "llama-index==0.9.48",
+        "llama-index>=0.12.20",
         "python-dotenv>=0.19.0",
         "openai>=1.0.0",
         "nltk>=3.6.0",
