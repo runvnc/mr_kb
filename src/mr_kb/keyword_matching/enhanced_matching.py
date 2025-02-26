@@ -333,11 +333,12 @@ def enhance_search_results(query_text: str,
     enhanced_results.sort(key=lambda x: x[2], reverse=True)
     
     # Apply score compression to high scores
-    enhanced_results = compress_high_scores(enhanced_results)
+    #enhanced_results = compress_high_scores(enhanced_results)
     
     # Apply normalization to create more differentiation between scores
-    enhanced_results = normalize_scores(enhanced_results)
+    #enhanced_results = normalize_scores(enhanced_results)
     
     # Filter by minimum score and limit to final_top_k
     filtered_results = [r for r in enhanced_results if r[2] >= min_score]
     return filtered_results[:final_top_k]
+
