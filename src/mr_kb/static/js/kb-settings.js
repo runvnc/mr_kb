@@ -93,60 +93,18 @@ class KbSettings extends BaseEl {
   }
 
   initializeAgentObserver() {
-    // Find the agent form element
-    const agentForm = document.querySelector('agent-form');
-    if (!agentForm) {
-      console.warn('Agent form not found');
-      return;
-    }
-
-    // Create a mutation observer to watch for changes to the agent
-    this.observer = new MutationObserver(() => {
-      // Debounce the handler to avoid excessive updates
-      if (this.debounceTimer) {
-        clearTimeout(this.debounceTimer);
-      }
-      
-      this.debounceTimer = setTimeout(() => {
-        this.checkForAgentChanges(agentForm);
-      }, 300);
-    });
-
-    // Initial check
-    this.checkForAgentChanges(agentForm);
-    
-    // Start observing the shadow DOM if possible
-    if (agentForm.shadowRoot) {
-      this.observer.observe(agentForm.shadowRoot, {
-        childList: true,
-        subtree: true,
-        characterData: true
-      });
-      console.log("Observing agent form shadow root for changes");
-    }
-    
-    // Start observing
-    this.observer.observe(agentForm, {
-      childList: true,      // Watch for changes to child elements
-      subtree: true,        // Watch the entire subtree
-      characterData: true   // Watch for changes to text content
-    });
-    console.log("Observing agent form for changes");
-  }
-
-  checkForAgentChanges(agentForm) {
-    if (!agentForm) return;
-    
-    // Check if the agent has changed
-    if (agentForm.agent && agentForm.agent.name) {
-      const newAgentName = agentForm.agent.name;
-      if (newAgentName && newAgentName !== this.agentName) {
-        console.log(`Agent changed from ${this.agentName} to ${newAgentName}`);
-        this.agentName = newAgentName;
-        this.fetchKnowledgeBases();
-        this.fetchAgentKbSettings();
-      }
-    }
+    this.observer = new MutationObserver((mutations) => {
+        const agentForm = document.querySelector('agent-form');
+        if (agentForm.agent && agentForm.agent.name) {
+          const newAgentName = agentForm.agent.name;
+          if (newAgentName && newAgentName !== this.agentName) {
+            console.log(`Agent changed from ${this.agentName} to ${newAgentName}`);
+            this.agentName = newAgentName;
+            this.fetchKnowledgeBases();
+            this.fetchAgentKbSettings();
+          }
+        }
+      })
   }
 
   loadAgentName() {
