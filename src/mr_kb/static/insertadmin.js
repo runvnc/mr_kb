@@ -7,7 +7,14 @@ function insertKBSettings() {
       // Create our KB settings component
       const kbSettings = document.createElement('kb-settings');
       // actually, just add it to the end of the form right before the Save button
-      agentForm.shadowRoot.appendChild(kbSettings);
+      // find div "agent-insert-end" and insert right before that
+      const agentInsertEnd = agentForm.shadowRoot.querySelector('#agent-insert-end');
+      if (agentInsertEnd) {
+        agentInsertEnd.parentNode.insertBefore(kbSettings, agentInsertEnd);
+        console.log('KB settings component inserted into agent form');
+      } else {
+        console.warn('Could not find agent-insert-end in agent form');
+      }
 
       console.log('KB settings component inserted into agent form');
       kbSettings.style.border = "3px solid red"
