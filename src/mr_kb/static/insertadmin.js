@@ -1,5 +1,6 @@
 function insertKBSettings() {
-  const agentForm = document.querySelector('agent-editor');
+  const agentEditor = document.querySelector('agent-editor');
+  const agentForm = agentEditor.shadowRoot.querySelector('agent-form');
     if (agentForm && agentForm.shadowRoot) {
       // Load our component script if not already loaded
       
@@ -24,12 +25,11 @@ const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
         console.log("kbsettings mutation observer")
         console.log(mutation)
-        mutation.addedNodes.forEach((node) => {
-            if (node.nodeName === 'AGENT-EDITOR') {
-                // Wait for shadow DOM to be created
-                setTimeout(() => insertKBSettings(), 100)
-            }
-        })
+        const editor = document.querySelector('agent-editor');
+        const form = editor.shadowRoot.querySelector('agent-form');
+        if (form) {
+          setTimeout(insertKBSettings, 100)
+        }
     })
 })
 
