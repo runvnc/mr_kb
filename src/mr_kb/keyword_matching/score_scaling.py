@@ -80,13 +80,8 @@ def compress_high_scores(results):
     """
     compressed_results = []
     for text, metadata, score, chunk_size in results:
-        # Apply more compression to scores above 0.8
-        if score > 0.8:
-            # Map 0.8-1.0 range to 0.8-0.95 range
-            compressed = score  # No compression
-            compressed = 0.8 + (score - 0.8) * 0.9  # Less compression
-        else:
-            compressed = score
+        # No compression - pass through original scores
+        compressed = score
         
         compressed_results.append((text, metadata, compressed, chunk_size))
     
