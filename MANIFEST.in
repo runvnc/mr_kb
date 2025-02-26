@@ -3,3 +3,6 @@ include LICENSE
 recursive-include src/mr_kb/templates *.jinja2
 recursive-include src/mr_kb/inject *.jinja2
 recursive-include src/mr_kb/static/js *.js
+recursive-include src/mr_kb/static *.js
+recursive-include src/mr_kb/static/css *.css
+
