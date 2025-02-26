@@ -53,7 +53,7 @@ def boost_for_exact_matches(query_text, node_text, base_score):
     # Apply boost based on match ratio
     if important_terms:
         match_ratio = match_count / len(important_terms)
-        boost_factor = 1 + (match_ratio * 0.3)  # Up to 30% boost
+        boost_factor = 1 + (match_ratio * 0.6)  # Up to 60% boost
         return min(base_score * boost_factor, 1.0)
     return base_score
 
@@ -475,7 +475,7 @@ class HierarchicalKnowledgeBase:
             adjusted_score = boost_for_exact_matches(query_text, node_text, adjusted_score)
             
             # Normalize by length to prevent bias toward very long documents
-            #adjusted_score = normalize_by_length(adjusted_score, len(node_text))
+            adjusted_score = normalize_by_length(adjusted_score, len(node_text))
             
             # Apply metadata-based adjustments
             adjusted_score = adjust_score_by_metadata(metadata, query_text, adjusted_score)
