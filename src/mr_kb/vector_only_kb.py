@@ -3,7 +3,7 @@ from llama_index.core.readers import SimpleDirectoryReader
 from llama_index.core.storage import StorageContext
 from llama_index.core import Document, load_index_from_storage
 from llama_index.core.node_parser import HierarchicalNodeParser
-from llama_index.retrievers import AutoMergingRetriever
+from llama_index.core.retrievers import AutoMergingRetriever
 from typing import Dict, List, Optional, AsyncIterator, Callable
 from .utils import get_supported_file_types, format_supported_types
 from .file_handlers import ExcelReader, DocxReader
