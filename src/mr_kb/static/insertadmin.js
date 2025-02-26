@@ -5,7 +5,7 @@ function insertKBSettings() {
       // Load our component script if not already loaded
       
       // Create our KB settings component
-      /const kbSettings = document.createElement('kb-settings');
+      //const kbSettings = document.createElement('kb-settings');
       const kbSettings = document.createElement("div");
       kbSettings.innerHTML = "TESTING !!!"
       // actually, just add it to the end of the form right before the Save button
