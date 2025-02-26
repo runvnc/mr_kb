@@ -1,15 +1,7 @@
-document.addEventListener('DOMContentLoaded', function() {
-  // Wait for the agent form to be fully loaded
-  setTimeout(function() {
-    const agentForm = document.querySelector('agent-form');
+function insertKBSettings() {
+  const agentForm = document.querySelector('agent-form');
     if (agentForm && agentForm.shadowRoot) {
       // Load our component script if not already loaded
-      if (!document.querySelector('script[src="/kb/static/js/kb-settings.js"]')) {
-        const script = document.createElement('script');
-        script.type = 'module';
-        script.src = '/kb/static/js/kb-settings.js';
-        document.head.appendChild(script);
-      }
       
       // Create our KB settings component
       const kbSettings = document.createElement('kb-settings');
@@ -26,5 +18,20 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
       console.warn('Agent form not found or shadow root not accessible');
     }
-  }, 1000);
-});
+}
+
+const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+            if (node.nodeName === 'AGENT-FORM') {
+                // Wait for shadow DOM to be created
+                setTimeout(() => insertKBSettings(), 100)
+            }
+        })
+    })
+})
+
+observer.observe(document.body, {
+    childList: true,
+    subtree: true
+})
