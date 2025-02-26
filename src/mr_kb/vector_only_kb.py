@@ -464,7 +464,6 @@ class HierarchicalKnowledgeBase:
         try:
             if not self.index:
                 raise ValueError("Index not initialized.")
-            dispatcher.event(RetrievalStartEvent(query_text))
             
             retriever_start = datetime.datetime.now()
 
@@ -497,13 +496,13 @@ class HierarchicalKnowledgeBase:
                 adjusted_score = apply_minimum_content_threshold(node_text, score)
                 
                 # Boost for exact keyword matches
-                adjusted_score = boost_for_exact_matches(query_text, node_text, adjusted_score)
+                #adjusted_score = boost_for_exact_matches(query_text, node_text, adjusted_score)
                 
                 # Normalize by length to prevent bias toward very long documents
-                adjusted_score = normalize_by_length(adjusted_score, len(node_text))
+                #adjusted_score = normalize_by_length(adjusted_score, len(node_text))
                 
                 # Apply metadata-based adjustments
-                adjusted_score = adjust_score_by_metadata(metadata, query_text, adjusted_score)
+                #adjusted_score = adjust_score_by_metadata(metadata, query_text, adjusted_score)
                 
                 enhanced_results.append((node_text, metadata, adjusted_score, chunk_size))
             
@@ -515,7 +514,6 @@ class HierarchicalKnowledgeBase:
             print(f"Retrieval failed: {str(e)} \n {trace}")
             raise DocumentProcessingErrorError(f"Retrieval failed: {str(e)} \n {trace}") from e
 
-        dispatcher.event(RetrievalEndEvent(query_text))
 
         return enhanced_results
     
