@@ -10,9 +10,11 @@ function insertKBSettings() {
       kbSettings.innerHTML = "TESTING !!!"
       // actually, just add it to the end of the form right before the Save button
       // find div "agent-insert-end" and insert right before that
-      const agentInsertEnd = agentForm.shadowRoot.querySelector('#agent-insert-end');
+      const agentInsertEnd = agentForm.shadowRoot.querySelectorAll('.agent-insert-end')[0];
       if (agentInsertEnd) {
-        agentInsertEnd.insertAdjacentElement('afterend', kbSettings);
+        agentInsertEnd.innerHTML = "HELLO WORLD"
+
+        //agentInsertEnd.insertAdjacentElement('afterend', kbSettings);
 
         console.log('KB settings component inserted into agent form');
       } else {
@@ -36,6 +38,7 @@ function insertKBSettings() {
     }
 }
 
+/*
 const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
         console.log("kbsettings mutation observer")
@@ -47,7 +50,7 @@ const observer = new MutationObserver((mutations) => {
         }
     })
 })
-
+*/
 console.log("hi from insert admin kb settings agent kb")
 const agentEditor = document.querySelector('agent-editor');
 console.log({agentEditor})
@@ -56,9 +59,11 @@ console.log({shadowRoot})
 if (shadowRoot) {
   console.log("FOUND SHADOW ROOT for agent editor")
 }
-insertKBSettings();
 
+setTimeout(insertKBSettings, 1000)
+
+/*
 observer.observe(agentEditor.shadowRoot, {
     childList: true,
     subtree: true
-})
+}) */
