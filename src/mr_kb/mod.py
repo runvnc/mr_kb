@@ -164,7 +164,7 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
                 context_data = await kb.get_relevant_context(
                     query_text,
                     similarity_top_k=12,  # Fewer results per KB since we're querying multiple
-                    format_type="markdown"
+                    format_type="detailed"
                 )
                 if context_data:
                     all_results.append(f"From KB '{kb_name}':\n{context_data}")

@@ -396,8 +396,8 @@ class HierarchicalKnowledgeBase:
     
     async def get_relevant_context(self, query_text: str, 
                             similarity_top_k: int = 15,
-                            format_type: str = "markdown",
-                            min_score: float = 0.0) -> str:
+                            format_type: str = "detailed",
+                            min_score: float = 65.0) -> str:
         """Get formatted context from relevant nodes.
         
         Args:
@@ -431,7 +431,7 @@ class HierarchicalKnowledgeBase:
         else:  # detailed
             context = "### [Retrieved Knowledge Base Results]\n"
             context += "Note: Results are ranked by relevance score (0-1). Higher scores indicate stronger matches.\n"
-            context += "Some results with lower scores may be less relevant.\n\n"
+            context += "Some results with lower scores may be less relevant or unrelated to user query.\n\n"
             context += "=" * 80 + "\n\n"  # Distinctive separator at start
 
             for text, metadata, score, chunk_size in results:
