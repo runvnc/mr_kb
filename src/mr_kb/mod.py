@@ -139,7 +139,13 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
     # get the name of the agent from the context
     # find the kbs that the agent is set to use
     # only query those kbs
-    agent_name = context.agent_name
+    try:
+        agent_name = context.agent_name
+        if not agent_name:
+            return data
+    except Exception as e:
+        print(f"Error accessing agent_name from context: {e}")
+        return data
     
     # Load agent KB settings
     settings_dir = "data/kb/agent_settings"
@@ -175,13 +181,13 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
         metadata = load_kb_metadata()
         all_results = []
         
-+        # Only query KBs that the agent is allowed to access
-+        kb_names_to_query = [kb_name for kb_name in allowed_kbs if kb_name in metadata]
-+        
-+        if not kb_names_to_query:
-+            return data
-+        
-+        for kb_name in kb_names_to_query:
+        # Only query KBs that the agent is allowed to access
+        kb_names_to_query = [kb_name for kb_name in allowed_kbs if kb_name in metadata]
+        
+        if not kb_names_to_query:
+            return data
+        
+        for kb_name in kb_names_to_query:
             try:
                 kb = await get_kb_instance(kb_name)
                 print(f"Querying KB '{kb_name}' for agent '{agent_name}'")
