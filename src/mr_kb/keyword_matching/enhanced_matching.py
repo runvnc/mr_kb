@@ -7,6 +7,7 @@ by considering multiple occurrences of keywords, term proximity, and phrase matc
 
 import re
 from typing import Dict, List, Tuple, Set, Optional
+from .score_scaling import apply_logarithmic_boost, normalize_scores, compress_high_scores
 from .config import *
 import logging
 
@@ -197,20 +198,24 @@ def integrated_keyword_matching(query_text: str, node_text: str, base_score: flo
     
     # Combine all components for final boost
     # Weight the components based on their importance
-    combined_boost = 1.0 + (
+    raw_boost = 1.0 + (
         (coverage_ratio * COVERAGE_BOOST + density_factor * DENSITY_BOOST) * frequency_weight +
         proximity_score * proximity_weight +
         phrase_score * phrase_weight
     )
+    
+    # Apply logarithmic scaling to prevent scores from easily reaching 1.0
+    adjusted_score = apply_logarithmic_boost(base_score, raw_boost)
     
     if debug:
         logger.debug(f"Important terms: {important_terms}")
         logger.debug(f"Term frequencies: {term_frequencies}")
         logger.debug(f"Coverage: {coverage_ratio:.2f}, Density: {density_factor:.2f}, "
                     f"Proximity: {proximity_score:.2f}, Phrase: {phrase_score:.2f}")
-        logger.debug(f"Combined boost: {combined_boost:.2f}")
+        logger.debug(f"Coverage: {coverage_ratio:.2f}, Density: {density_factor:.2f}, Proximity: {proximity_score:.2f}, Phrase: {phrase_score:.2f}")
+        logger.debug(f"Raw boost: {raw_boost:.2f}, Adjusted score: {adjusted_score:.2f}")
     
-    return min(base_score * combined_boost, 1.0)
+    return adjusted_score
 
 def apply_minimum_content_threshold(text: str, score: float, min_length: int = MIN_CONTENT_LENGTH) -> float:
     """
@@ -326,6 +331,12 @@ def enhance_search_results(query_text: str,
     
     # Re-sort by adjusted scores
     enhanced_results.sort(key=lambda x: x[2], reverse=True)
+    
+    # Apply score compression to high scores
+    enhanced_results = compress_high_scores(enhanced_results)
+    
+    # Apply normalization to create more differentiation between scores
+    enhanced_results = normalize_scores(enhanced_results)
     
     # Filter by minimum score and limit to final_top_k
     filtered_results = [r for r in enhanced_results if r[2] >= min_score]
