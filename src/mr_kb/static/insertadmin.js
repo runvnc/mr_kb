@@ -6,8 +6,14 @@ function insertKBSettings() {
       
       // Create our KB settings component
       const kbSettings = document.createElement('kb-settings');
-      
-      // Find the commands section to insert before
+      // actually, just add it to the end of the form right before the Save button
+      agentForm.shadowRoot.appendChild(kbSettings);
+
+      console.log('KB settings component inserted into agent form');
+      kbSettings.style.border = "3px solid red"
+      kbSettings.style.height = "250px";
+      kbSettings.style.width = "400px";
+      /*
       const commandsSection = agentForm.shadowRoot.querySelector('.commands-section');
       if (commandsSection) {
         // Insert our component before the commands section
@@ -15,7 +21,7 @@ function insertKBSettings() {
         console.log('KB settings component inserted into agent form');
       } else {
         console.warn('Could not find commands section in agent form');
-      }
+      }*/
     } else {
       console.warn('Agent form not found or shadow root not accessible');
     }
