@@ -41,6 +41,7 @@ console.log({shadowRoot})
 if (shadowRoot) {
   console.log("FOUND SHADOW ROOT for agent editor")
 }
+insertKBSettings();
 
 observer.observe(agentEditor.shadowRoot, {
     childList: true,
