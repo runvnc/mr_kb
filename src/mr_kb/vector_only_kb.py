@@ -481,11 +481,11 @@ class HierarchicalKnowledgeBase:
 
             # Use cached retriever or create new one
             if self._retriever is None:
-                self._retriever = AutoMergingRetriever(
-                    self.index.as_retriever(similarity_top_k=similarity_top_k),
-                    storage_context=self.index.storage_context
-                )
-                #self._retriever = self.index.as_retriever(similarity_top_k=similarity_top_k)
+                #self._retriever = AutoMergingRetriever(
+                #    self.index.as_retriever(similarity_top_k=similarity_top_k),
+                #    storage_context=self.index.storage_context
+                #)
+                self._retriever = self.index.as_retriever(similarity_top_k=similarity_top_k)
                 print(f"Created new retriever: {datetime.datetime.now() - retriever_start}")
             else:
                 print("Using cached retriever")
