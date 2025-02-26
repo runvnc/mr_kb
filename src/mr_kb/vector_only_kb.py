@@ -465,7 +465,7 @@ class HierarchicalKnowledgeBase:
         print("Cleared retriever cache")
 
     @dispatcher.span
-    async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15, final_top_k: int = 6, min_score: float = 0.65):
+    async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15, final_top_k: int = 6, min_score: float = 0.69):
         """Get raw retrieval results without LLM synthesis.
         
         Returns:
