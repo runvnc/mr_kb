@@ -13,6 +13,18 @@ import shutil
 import datetime
 import json
 from lib.utils.debug import debug_box
+import llama_index.core.instrumentation as instrument
+from llama_index.core.instrumentation.events.retrieval import RetrievalStartEvent, RetrievalEndEvent
+from llama_index.core.instrumentation.event_handlers import BaseEventHandler
+
+dispatcher = instrument.get_dispatcher(__name__)
+class RetrievalEventHandler(BaseEventHandler):
+    def handle(self, event):
+        print(f"Retrieval Event: (event)")
+
+event_handler = RetrievalEventHandler()
+dispatcher.add_event_handler(event_handler)
+
 
 def apply_minimum_content_threshold(text, score, min_length=20):
     """Penalize documents that are too short to be meaningful."""
@@ -435,6 +447,7 @@ class HierarchicalKnowledgeBase:
         self._retriever = None
         print("Cleared retriever cache")
 
+    @dispatcher.span
     async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15):
         """Get raw retrieval results without LLM synthesis.
         
@@ -444,6 +457,7 @@ class HierarchicalKnowledgeBase:
         """
         if not self.index:
             raise ValueError("Index not initialized.")
+        dispatcher.event(RetrievalStartEvent(query=query_text))
         
         retriever_start = datetime.datetime.now()
 
@@ -488,6 +502,8 @@ class HierarchicalKnowledgeBase:
         
         # Re-sort by adjusted scores
         enhanced_results.sort(key=lambda x: x[2], reverse=True)
+
+        dispatcher.event(RetrievalEndEvent(query=query_text))
 
         return enhanced_results
     
