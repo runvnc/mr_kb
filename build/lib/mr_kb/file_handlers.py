@@ -1,6 +1,6 @@
 from typing import List
-from llama_index.core import Document
-from llama_index.core.readers.base import BaseReader
+from llama_index import Document
+from llama_index.readers.base import BaseReader
 import os
 
 class ExcelReader(BaseReader):
