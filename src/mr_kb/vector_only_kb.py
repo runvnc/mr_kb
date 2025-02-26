@@ -458,6 +458,7 @@ class HierarchicalKnowledgeBase:
             List of tuples (node text, metadata, score, chunk_size)
             chunk_size helps identify which level of the hierarchy the node is from
         """
+        debug_box("Starting retrieval")
         if not self.index:
             raise ValueError("Index not initialized.")
         dispatcher.event(RetrievalStartEvent(query=query_text))
