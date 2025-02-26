@@ -1,14 +1,3 @@
-{% block content %}
-<details>
-  <summary><span class="material-icons">library_books</span>
-  <span>Knowledge Base</span>
-  </summary>
-  <div class="details-content">
-    <knowledge-base-manager theme="dark" scope="local"></knowledge-base-manager>
-  </div>
-</details>
-{% endblock %}
-
-{% block head %}
-<script type="module" src="/mr_kb/static/js/kb-manager.js"></script>
+{% block head_scripts %}
+<script type="module" src="/kb/static/insertadmin.js"></script>
 {% endblock %}

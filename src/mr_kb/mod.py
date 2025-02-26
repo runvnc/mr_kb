@@ -140,6 +140,23 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
     # find the kbs that the agent is set to use
     # only query those kbs
     agent_name = context.agent_name
+    
+    # Load agent KB settings
+    settings_dir = "data/kb/agent_settings"
+    settings_file = f"{settings_dir}/{agent_name}.json"
+    allowed_kbs = []
+    
+    if os.path.exists(settings_file):
+        try:
+            with open(settings_file, 'r') as f:
+                settings = json.load(f)
+                allowed_kbs = settings.get('kb_access', [])
+        except Exception as e:
+            print(f"Error loading KB settings for agent {agent_name}: {e}")
+    
+    # If no KBs are allowed, return data unchanged
+    if not allowed_kbs:
+        return data
 
     if not data.get('message'):
         return data
@@ -158,9 +175,16 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
         metadata = load_kb_metadata()
         all_results = []
         
-        for kb_name in metadata.keys():
++        # Only query KBs that the agent is allowed to access
++        kb_names_to_query = [kb_name for kb_name in allowed_kbs if kb_name in metadata]
++        
++        if not kb_names_to_query:
++            return data
++        
++        for kb_name in kb_names_to_query:
             try:
                 kb = await get_kb_instance(kb_name)
+                print(f"Querying KB '{kb_name}' for agent '{agent_name}'")
                 context_data = await kb.get_relevant_context(
                     query_text,
                     similarity_top_k=12,  # Fewer results per KB since we're querying multiple
