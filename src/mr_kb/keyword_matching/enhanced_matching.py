@@ -204,8 +204,9 @@ def integrated_keyword_matching(query_text: str, node_text: str, base_score: flo
         phrase_score * phrase_weight
     )
     
+    adjusted_score = base_score + raw_boost
     # Apply logarithmic scaling to prevent scores from easily reaching 1.0
-    adjusted_score = apply_logarithmic_boost(base_score, raw_boost)
+    #adjusted_score = apply_logarithmic_boost(base_score, raw_boost)
     
     if debug:
         logger.debug(f"Important terms: {important_terms}")
