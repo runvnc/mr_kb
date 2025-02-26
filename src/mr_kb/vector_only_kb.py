@@ -465,7 +465,7 @@ class HierarchicalKnowledgeBase:
         print("Cleared retriever cache")
 
     @dispatcher.span
-    async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15, final_top_k: int = 6):
+    async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15, final_top_k: int = 6, min_score: float = 0.65):
         """Get raw retrieval results without LLM synthesis.
         
         Returns:
@@ -500,7 +500,9 @@ class HierarchicalKnowledgeBase:
                     node.node.metadata,
                     node.score,
                     len(node.node.text)) for node in nodes]
-            
+
+            raw_results = [r for r in results if r[2] >= min_score]
+             
             # Apply enhanced keyword matching and filtering
             enhanced_results = enhance_search_results(query_text, raw_results, 
                                                     initial_top_k=similarity_top_k,
@@ -535,10 +537,7 @@ class HierarchicalKnowledgeBase:
         # start timing
         start_time = datetime.datetime.now()
 
-        results = await self.retrieve_relevant_nodes(query_text, similarity_top_k, final_top_k)
-        
-        # Filter by minimum score
-        results = [r for r in results if r[2] >= min_score]
+        results = await self.retrieve_relevant_nodes(query_text, similarity_top_k, final_top_k, min_score)
         
         if not results:
             return ""
