@@ -12,10 +12,7 @@ function insertKBSettings() {
       // find div "agent-insert-end" and insert right before that
       const agentInsertEnd = agentForm.shadowRoot.querySelectorAll('.agent-insert-end')[0];
       if (agentInsertEnd) {
-        agentInsertEnd.innerHTML = "HELLO WORLD"
-
-        //agentInsertEnd.insertAdjacentElement('afterend', kbSettings);
-
+        agentInsertEnd.insertAdjacentElement('afterend', kbSettings);
         console.log('KB settings component inserted into agent form');
       } else {
         console.warn('Could not find agent-insert-end in agent form');
