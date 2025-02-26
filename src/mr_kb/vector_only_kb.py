@@ -60,7 +60,7 @@ def boost_for_exact_matches(query_text, node_text, base_score):
     
     # Extract important terms from query
     important_terms = [term.lower() for term in re.findall(r'\b\w+\b', query_text) 
-                      if term.lower() not in stop_words and len(term) > 3]
+                      if term.lower() not in stop_words and len(term) > 2]
     
     # Count exact matches in document
     match_count = sum(1 for term in important_terms if re.search(r'\b' + re.escape(term) + r'\b', 
