@@ -397,7 +397,7 @@ class HierarchicalKnowledgeBase:
     async def get_relevant_context(self, query_text: str, 
                             similarity_top_k: int = 15,
                             format_type: str = "detailed",
-                            min_score: float = 65.0) -> str:
+                            min_score: float = 0.65) -> str:
         """Get formatted context from relevant nodes.
         
         Args:
