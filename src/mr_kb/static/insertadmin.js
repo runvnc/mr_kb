@@ -33,7 +33,8 @@ const observer = new MutationObserver((mutations) => {
     })
 })
 
-observer.observe(document.body, {
+const agentEditor = document.querySelector('agent-editor');
+observer.observe(agentEditor.shadowRoot, {
     childList: true,
     subtree: true
 })
