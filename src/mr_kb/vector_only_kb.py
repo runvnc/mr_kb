@@ -19,6 +19,8 @@ from lib.utils.debug import debug_box
 import llama_index.core.instrumentation as instrument
 from llama_index.core.instrumentation.events.retrieval import RetrievalStartEvent, RetrievalEndEvent
 from llama_index.core.instrumentation.event_handlers import BaseEventHandler
+import traceback
+
 
 dispatcher = instrument.get_dispatcher(__name__)
 class RetrievalEventHandler(BaseEventHandler):
@@ -459,53 +461,59 @@ class HierarchicalKnowledgeBase:
             chunk_size helps identify which level of the hierarchy the node is from
         """
         debug_box("Starting retrieval")
-        if not self.index:
-            raise ValueError("Index not initialized.")
-        dispatcher.event(RetrievalStartEvent(query_text))
-        
-        retriever_start = datetime.datetime.now()
+        try:
+            if not self.index:
+                raise ValueError("Index not initialized.")
+            dispatcher.event(RetrievalStartEvent(query_text))
+            
+            retriever_start = datetime.datetime.now()
 
-        # Use cached retriever or create new one
-        if self._retriever is None:
-            #self._retriever = AutoMergingRetriever(
-            #    self.index.as_retriever(similarity_top_k=similarity_top_k),
-            #    storage_context=self.index.storage_context
-            #)
-            self._retriever = self.index.as_retriever(similarity_top_k=similarity_top_k)
-            print(f"Created new retriever: {datetime.datetime.now() - retriever_start}")
-        else:
-            print("Using cached retriever")
-        
-        retriever_end = datetime.datetime.now()
-        print(f"Total retriever setup time: {retriever_end - retriever_start}")
-        
-        nodes = await self._retriever.aretrieve(query_text)
-        
-        # Get raw results
-        raw_results = [(node.node.text, 
-                 node.node.metadata,
-                 node.score,
-                 len(node.node.text)) for node in nodes]
-        
-        # Apply score adjustments
-        enhanced_results = []
-        for node_text, metadata, score, chunk_size in raw_results:
-            # Penalize very short documents
-            adjusted_score = apply_minimum_content_threshold(node_text, score)
+            # Use cached retriever or create new one
+            if self._retriever is None:
+                #self._retriever = AutoMergingRetriever(
+                #    self.index.as_retriever(similarity_top_k=similarity_top_k),
+                #    storage_context=self.index.storage_context
+                #)
+                self._retriever = self.index.as_retriever(similarity_top_k=similarity_top_k)
+                print(f"Created new retriever: {datetime.datetime.now() - retriever_start}")
+            else:
+                print("Using cached retriever")
             
-            # Boost for exact keyword matches
-            adjusted_score = boost_for_exact_matches(query_text, node_text, adjusted_score)
+            retriever_end = datetime.datetime.now()
+            print(f"Total retriever setup time: {retriever_end - retriever_start}")
             
-            # Normalize by length to prevent bias toward very long documents
-            adjusted_score = normalize_by_length(adjusted_score, len(node_text))
+            nodes = await self._retriever.aretrieve(query_text)
             
-            # Apply metadata-based adjustments
-            adjusted_score = adjust_score_by_metadata(metadata, query_text, adjusted_score)
+            # Get raw results
+            raw_results = [(node.node.text, 
+                    node.node.metadata,
+                    node.score,
+                    len(node.node.text)) for node in nodes]
             
-            enhanced_results.append((node_text, metadata, adjusted_score, chunk_size))
-        
-        # Re-sort by adjusted scores
-        enhanced_results.sort(key=lambda x: x[2], reverse=True)
+            # Apply score adjustments
+            enhanced_results = []
+            for node_text, metadata, score, chunk_size in raw_results:
+                # Penalize very short documents
+                adjusted_score = apply_minimum_content_threshold(node_text, score)
+                
+                # Boost for exact keyword matches
+                adjusted_score = boost_for_exact_matches(query_text, node_text, adjusted_score)
+                
+                # Normalize by length to prevent bias toward very long documents
+                adjusted_score = normalize_by_length(adjusted_score, len(node_text))
+                
+                # Apply metadata-based adjustments
+                adjusted_score = adjust_score_by_metadata(metadata, query_text, adjusted_score)
+                
+                enhanced_results.append((node_text, metadata, adjusted_score, chunk_size))
+            
+            # Re-sort by adjusted scores
+            enhanced_results.sort(key=lambda x: x[2], reverse=True)
+
+        except Exception as e:
+            trace = traceback.format_exc()
+            print(f"Retrieval failed: {str(e)} \n {trace}")
+            raise DocumentProcessingErrorError(f"Retrieval failed: {str(e)} \n {trace}") from e
 
         dispatcher.event(RetrievalEndEvent(query_text))
 
