@@ -4,6 +4,7 @@ from lib.pipelines.pipe import pipe
 from .vector_only_kb import HierarchicalKnowledgeBase
 import os
 import json
+import traceback
 import datetime
 from .chat_utils import KB_START_DELIMITER, KB_END_DELIMITER, clean_chat_messages
 from lib.utils.debug import debug_box
@@ -234,7 +235,8 @@ async def filter_kb_messages(data: dict, context=None) -> dict:
         else:
             debug_box('No messages in data')
     except Exception as e:
-        print(f"Error filtering KB content from messages: {str(e)}")
+        trace = traceback.format_exc()
+        print(f"Error filtering KB content from messages: {str(e)}\n {trace}")
         # Continue without filtering on error
         pass
             
