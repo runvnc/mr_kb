@@ -168,11 +168,6 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
     if not data.get('message'):
         return data
         
-    # Clean up KB content from previous messages if they exist
-    if 'messages' in data and isinstance(data['messages'], list):
-        # Clean messages to retain KB content only in the most recent non-assistant message
-        data['messages'] = clean_chat_messages(data['messages'])
-        
     # Get message text
     message = data['message']
     if isinstance(message, list):
@@ -222,6 +217,21 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
     except Exception as e:
         print(f"Error enriching message with KB data: {e}")
         # Continue without KB enrichment on error
+        pass
+            
+    return data
+
+@pipe(name='filter_messages', priority=10)
+async def filter_kb_messages(data: dict, context=None) -> dict:
+    """Filter KB content from messages, preserving only the two most recent non-assistant messages with KB content."""
+    try:
+        # Clean up KB content from previous messages if they exist
+        if 'messages' in data and isinstance(data['messages'], list):
+            # Clean messages to retain KB content only in the two most recent non-assistant messages
+            data['messages'] = clean_chat_messages(data['messages'])
+    except Exception as e:
+        print(f"Error filtering KB content from messages: {str(e)}")
+        # Continue without filtering on error
         pass
             
     return data

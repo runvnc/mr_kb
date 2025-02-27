@@ -27,7 +27,7 @@ def remove_kb_content(text: str) -> str:
     return re.sub(pattern, KB_REPLACEMENT, text, flags=re.DOTALL).strip()
 
 def clean_chat_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Clean a list of chat messages, removing KB content from all but the most recent non-assistant message.
+    """Clean a list of chat messages, removing KB content from all but the two most recent non-assistant messages.
     
     Handles both string content and lists of content objects.
     Only processes content objects of type 'text'.
@@ -39,28 +39,30 @@ def clean_chat_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     
     
     Returns:
-        Cleaned copy of messages list with KB content preserved in the most recent non-assistant message
+        Cleaned copy of messages list with KB content preserved in the two most recent non-assistant messages
     """
     cleaned_messages = []
     
-    # Find the index of the most recent non-assistant message (if any)
-    preserve_kb_index = None
+    # Find the indices of the two most recent non-assistant messages (if any)
+    preserve_kb_indices = []
     for i in range(len(messages) - 1, -1, -1):
         if messages[i]['role'] != 'assistant':
-            preserve_kb_index = i
-            break
+            preserve_kb_indices.append(i)
+            if len(preserve_kb_indices) >= 2:
+                break
     
-    # Process each message
-    for message in messages:
+    # Convert to a set for faster lookups
+    preserve_kb_indices = set(preserve_kb_indices)
+    
+    # Process each message with its index
+    for i, message in enumerate(messages):
         cleaned_message = message.copy()
         
         # Only clean non-assistant messages that aren't the most recent one
         if message['role'] != 'assistant' and (
-            preserve_kb_index is None or 
-            message != messages[preserve_kb_index]
+            i not in preserve_kb_indices
         ):
             content = message.get('content')
-            
             # Handle string content
             if isinstance(content, str):
                 cleaned_message['content'] = remove_kb_content(content)
