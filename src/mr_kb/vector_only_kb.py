@@ -311,6 +311,7 @@ class HierarchicalKnowledgeBase:
                 
                 # Persist updates
                 self.index.storage_context.persist(persist_dir=self.persist_dir)
+                self.index.docstore.persist()
                 self._clear_retriever_cache()
         except Exception as e:
             logger.error(f"Failed to remove document: {str(e)}")
