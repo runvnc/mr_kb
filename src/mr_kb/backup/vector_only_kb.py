@@ -308,6 +308,41 @@ class HierarchicalKnowledgeBase:
             logger.error(f"Failed to remove document: {str(e)}")
             raise DocumentProcessingError(f"Document removal failed: {str(e)}") from e
  
+    xx = """
+    async def remove_document(self, doc_id: str):
+        """Remove a document and all its hierarchical nodes from the index."""
+        if not self.index:
+            raise ValueError("Index not initialized.")
+            
+        try:
+            # Get all nodes associated with this document
+            nodes_to_remove = set()
+            for node_id, node in self.index.docstore.docs.items():
+                if hasattr(node, 'relationships') and hasattr(node.relationships, 'source'):
+                    if node.relationships.source.node_id == doc_id:
+                        nodes_to_remove.add(node_id)
+                        # Also add any child nodes
+                        if hasattr(node.relationships, 'children'):
+                            for child in node.relationships.children:
+                                nodes_to_remove.add(child.node_id)
+        
+            with atomic_index_update(self):
+                # Remove nodes from docstore and vector store
+                for node_id in nodes_to_remove:
+                    # Remove from docstore
+                    if node_id in self.index.docstore.docs:
+                        del self.index.docstore.docs[node_id]
+                    # Remove from vector store
+                    self.index.vector_store.delete(node_id)
+                
+                # Persist updates
+                self.index.storage_context.persist(persist_dir=self.persist_dir)
+                self._clear_retriever_cache()
+        except Exception as e:
+            logger.error(f"Failed to remove document: {str(e)}")
+            raise DocumentProcessingError(f"Document removal failed: {str(e)}") from e
+    """
+
     def get_document_info(self) -> List[Dict]:
         """Get information about all documents and their hierarchical structure."""
         if not self.index:
