@@ -95,7 +95,9 @@ class KbSettings extends BaseEl {
 
   initializeAgentObserver() {
     this.observer = new MutationObserver((mutations) => {
-        const agentForm = document.querySelector('agent-form');
+        console.log('kb settings mutation observed')
+        const agentEditor = document.querySelector('agent-editor');
+        const agentForm = agentEditor.shadowRoot.querySelector('agent-form');
         if (agentForm.agent && agentForm.agent.name) {
           const newAgentName = agentForm.agent.name;
           if (newAgentName && newAgentName !== this.agentName) {
