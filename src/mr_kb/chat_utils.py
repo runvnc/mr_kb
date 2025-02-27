@@ -1,6 +1,8 @@
 from typing import List, Dict, Union, Any
 import re
 import uuid
+from lib.utils.debug import debug_box
+
 
 # Generate unique delimiters that won't appear in normal text
 _MARKER = uuid.uuid4().hex[:8]
@@ -41,6 +43,7 @@ def clean_chat_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     Returns:
         Cleaned copy of messages list with KB content preserved in the two most recent non-assistant messages
     """
+    debug_box("top of clean chat messages ------------------------------------------------------------------")
     cleaned_messages = []
     
     # Find the indices of the two most recent non-assistant messages (if any)
@@ -51,6 +54,8 @@ def clean_chat_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             if len(preserve_kb_indices) >= 2:
                 break
     
+    print(f"len of messages: {len(messages)}, preserve_kb_indices: {preserve_kb_indices}, len(preserve_kb_indices): {len(preserve_kb_indices)}")
+
     # Convert to a set for faster lookups
     preserve_kb_indices = set(preserve_kb_indices)
     
@@ -83,7 +88,7 @@ def clean_chat_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 cleaned_message['content'] = cleaned_content
                 
         cleaned_messages.append(cleaned_message)
-    
+    print(f"cleaned_messages completed.")
     return cleaned_messages
 
 
