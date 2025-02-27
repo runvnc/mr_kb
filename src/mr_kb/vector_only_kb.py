@@ -283,7 +283,7 @@ class HierarchicalKnowledgeBase:
             # Get all nodes associated with this document
             nodes_to_remove = set()
             for node_id, node in self.index.docstore.docs.items():
-                doc_file_path = doc.metadata.get('file_path', 'Unknown')
+                doc_file_path = node.metadata.get('file_path', 'Unknown')
                 if doc_file_path == file_path:
                     nodes_to_remove.add(node_id)
                     # Also add any child nodes
