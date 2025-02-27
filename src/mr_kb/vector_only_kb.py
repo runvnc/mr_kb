@@ -280,6 +280,8 @@ class HierarchicalKnowledgeBase:
             raise ValueError("Index not initialized.")
             
         try:
+            debug_box("_________________________________________")
+            print("Ref doc info: ", self.index.ref_doc_info)
             # Get all nodes associated with this document
             nodes_to_remove = set()
             for node_id, node in self.index.docstore.docs.items():
@@ -288,6 +290,8 @@ class HierarchicalKnowledgeBase:
 
                 if doc_file_path == file_path:
                     nodes_to_remove.add(node_id)
+                    print("node =", node)
+                    print("node metadata = ", node.metadata)
                     print(f"Removing node: {node_id} with matching file path {file_path}")
                 else:
                     print(f"Did not match. node metadata was {node.metadata}")
