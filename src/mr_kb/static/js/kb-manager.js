@@ -340,13 +340,13 @@ class KnowledgeBaseManager extends BaseEl {
               <tbody>
                 ${this.documents.map(doc => html`
                   <tr>
-                    <td>${doc.file_name}</td>
+                    <td>${doc.file_path} /  ${doc.file_name}</td>
                     <td>${doc.file_type}</td>
                     <td>${new Date(doc.creation_date).toLocaleString()}</td>
                     <td>${doc.size}</td>
                     <td>
                       <button class="delete"
-                              @click=${() => this.deleteDocument(doc.doc_id)}>
+                              @click=${() => this.deleteDocument(doc.file_path)}>
                         Delete
                       </button>
                     </td>

@@ -31,79 +31,6 @@ class RetrievalEventHandler(BaseEventHandler):
 event_handler = RetrievalEventHandler()
 dispatcher.add_event_handler(event_handler)
 
-
-def apply_minimum_content_threshold(text, score, min_length=20):
-    """Penalize documents that are too short to be meaningful."""
-    if len(text) < min_length:
-        penalty = 0.5 * (len(text) / min_length)
-        return score * penalty
-    return score
-
-def normalize_by_length(score, text_length, max_length=5000):
-    """Normalize score based on document length to prevent bias toward longer docs."""
-    # Penalize very short documents (might be noise) and very long documents
-    length_factor = min(text_length, max_length) / max_length
-    # Apply a sigmoid-like normalization that favors mid-length documents
-    length_adjustment = (4 * length_factor * (1 - length_factor)) ** 0.5
-    return score * length_adjustment
-
-def boost_for_exact_matches(query_text, node_text, base_score):
-    """Boost scores for documents with exact matches of important terms."""
-    # Extract important terms (non-stopwords)
-    # Simple stopwords list for demonstration
-    stop_words = {'a', 'an', 'the', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 
-                  'be', 'been', 'being', 'in', 'on', 'at', 'to', 'for', 'with', 
-                  'by', 'about', 'against', 'between', 'into', 'through', 'during', 
-                  'before', 'after', 'above', 'below', 'from', 'up', 'down', 'of', 
-                  'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 
-                  'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 
-                  'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 
-                  'only', 'own', 'same', 'so', 'than', 'too', 'very', 'can', 'will', 
-                  'just', 'should', 'now'}
-    
-    # Extract important terms from query
-    important_terms = [term.lower() for term in re.findall(r'\b\w+\b', query_text) 
-                      if term.lower() not in stop_words and len(term) > 2]
-    
-    # Count exact matches in document
-    match_count = sum(1 for term in important_terms if re.search(r'\b' + re.escape(term) + r'\b', 
-                                                               node_text.lower()))
-    
-    # Apply boost based on match ratio
-    if important_terms:
-        match_ratio = match_count / len(important_terms)
-        debug_box(f"Important terms: {important_terms}")
-        debug_box(f"Match count {match_count} Match ratio {match_ratio}")
-        print(f"Match ratio: {match_ratio}")
-        boost_factor = 1.0 + (match_ratio * 0.3)  # Up to 60% boost
-        return min(base_score * boost_factor, 1.0)
-    return base_score
-
-def adjust_score_by_metadata(metadata, query_text, base_score):
-    """Adjust score based on document metadata."""
-    file_name = metadata.get('file_name', '').lower()
-    file_type = metadata.get('file_type', '').lower()
-    
-    # Extract key terms from query
-    query_terms = set(query_text.lower().split())
-    
-    # Check if filename contains query terms
-    filename_match = any(term in file_name for term in query_terms if len(term) > 3)
-    
-    # Boost for relevant file types (e.g., PDF for forms)
-    file_type_boost = 1.0
-    if 'form' in query_text.lower() and 'pdf' in file_type:
-        file_type_boost = 1.15
-    
-    # Apply boosts
-    adjusted_score = base_score
-    if filename_match:
-        adjusted_score *= 1.2  # 20% boost for filename match
-    
-    adjusted_score *= file_type_boost
-    
-    return min(adjusted_score, 1.0)  # Cap at 1.0
-
 logger = logging.getLogger(__name__)
 
 class DocumentProcessingError(Exception):
@@ -346,7 +273,42 @@ class HierarchicalKnowledgeBase:
         except Exception as e:
             logger.error(f"Failed to add document: {str(e)}")
             raise DocumentProcessingError(f"Document addition failed: {str(e)}") from e
-    
+
+    async def remove_document(self, file_path: str):
+        """Remove a document and all its hierarchical nodes from the index."""
+        if not self.index:
+            raise ValueError("Index not initialized.")
+            
+        try:
+            # Get all nodes associated with this document
+            nodes_to_remove = set()
+            for node_id, node in self.index.docstore.docs.items():
+                doc_file_path = doc.metadata.get('file_path', 'Unknown')
+                if doc_file_path == file_path:
+                    nodes_to_remove.add(node_id)
+                    # Also add any child nodes
+                    if hasattr(node.relationships, 'children'):
+                        for child in node.relationships.children:
+                            nodes_to_remove.add(child.node_id)
+
+        
+            with atomic_index_update(self):
+                # Remove nodes from docstore and vector store
+                for node_id in nodes_to_remove:
+                    # Remove from docstore
+                    if node_id in self.index.docstore.docs:
+                        del self.index.docstore.docs[node_id]
+                    # Remove from vector store
+                    self.index.vector_store.delete(node_id)
+                
+                # Persist updates
+                self.index.storage_context.persist(persist_dir=self.persist_dir)
+                self._clear_retriever_cache()
+        except Exception as e:
+            logger.error(f"Failed to remove document: {str(e)}")
+            raise DocumentProcessingError(f"Document removal failed: {str(e)}") from e
+ 
+    xx = """
     async def remove_document(self, doc_id: str):
         """Remove a document and all its hierarchical nodes from the index."""
         if not self.index:
@@ -379,7 +341,8 @@ class HierarchicalKnowledgeBase:
         except Exception as e:
             logger.error(f"Failed to remove document: {str(e)}")
             raise DocumentProcessingError(f"Document removal failed: {str(e)}") from e
-    
+    """
+
     def get_document_info(self) -> List[Dict]:
         """Get information about all documents and their hierarchical structure."""
         if not self.index:

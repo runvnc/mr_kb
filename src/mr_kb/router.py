@@ -203,12 +203,12 @@ async def list_documents(name: str, request: Request):
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
-@router.delete("/api/kb/{name}/documents/{doc_id}")
-async def delete_document(name: str, doc_id: str, request: Request):
+@router.delete("/api/kb/{name}/documents/{file_path}")
+async def delete_document(name: str, file_path: str, request: Request):
     """Delete document from specific KB"""
     try:
         kb = await get_kb_instance(name)
-        await kb.remove_document(doc_id)
+        await kb.remove_document(file_path)
         return JSONResponse({"success": True})
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
