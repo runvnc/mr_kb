@@ -260,11 +260,12 @@ class KnowledgeBaseManager extends BaseEl {
     this.uploadStatus = e.detail.message || 'Upload failed';
   }
 
-  async deleteDocument(docId) {
+  async deleteDocument(file_path) {
     if (!confirm('Are you sure you want to delete this document?')) return;
-
+    // file_path may have things like / or \, so we need to encode it
+    file_path = encodeURIComponent(file_path);
     try {
-      const response = await fetch(`/api/kb/${this.selectedKb}/documents/${docId}`, {
+      const response = await fetch(`/api/kb/${this.selectedKb}/documents/${file_path}`, {
         method: 'DELETE'
       });
 
