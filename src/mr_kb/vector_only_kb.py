@@ -300,22 +300,9 @@ class HierarchicalKnowledgeBase:
                 raise ValueError(f"No nodes found for document: {file_path}")
 
             with atomic_index_update(self):
-                # Remove nodes from docstore and vector store
-                for node_id in nodes_to_remove:
-                    # Remove from docstore
-                    if node_id in self.index.docstore.docs:
-                        del self.index.docstore.docs[node_id]
-                        print("Removed from docstore")
-                    else:
-                        print(f"Error: Node {node_id} not found in docstore")
-                        raise ValueError(f"Node {node_id} not found in docstore")
-
-                    # Remove from vector store
-                    self.index.vector_store.delete(node_id)
-                
+                self.index.vector_store.delete_nodes(nodes_to_remove, delete_from_doctore=True)
                 # Persist updates
                 self.index.storage_context.persist(persist_dir=self.persist_dir)
-                self.index.docstore.persist()
                 self._clear_retriever_cache()
         except Exception as e:
             logger.error(f"Failed to remove document: {str(e)}")
