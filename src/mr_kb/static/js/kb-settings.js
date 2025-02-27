@@ -82,7 +82,11 @@ class KbSettings extends BaseEl {
 
   connectedCallback() {
     super.connectedCallback();
-    this.loadAgentName();
+    try {
+       this.loadAgentName();
+    } catch (error) {
+      console.error('Error loading agent name:', error);
+    }
     this.initializeAgentObserver();
   }
 
@@ -108,6 +112,12 @@ class KbSettings extends BaseEl {
           }
         }
       })
+    console.log("Observing agent-editor")
+    this.observer.observe(document.querySelector('agent-editor'), {
+      attributes: true
+    });
+   
+    console.log("Observed agent-editor")
   }
 
   loadAgentName() {
