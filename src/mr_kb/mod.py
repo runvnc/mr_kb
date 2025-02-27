@@ -136,7 +136,7 @@ async def add_to_kb_cmd(name: str, file_path: str, context=None):
 @pipe(name='pre_process_msg', priority=10)
 async def enrich_with_kb(data: dict, context=None) -> dict:
     """Add relevant knowledge base context to messages"""
-
+    debug_box("Top of enrich_with_kb")
     # get the name of the agent from the context
     # find the kbs that the agent is set to use
     # only query those kbs
@@ -194,7 +194,8 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
                 print(f"Querying KB '{kb_name}' for agent '{agent_name}'")
                 context_data = await kb.get_relevant_context(
                     query_text,
-                    similarity_top_k=12,  # Fewer results per KB since we're querying multiple
+                    similarity_top_k=15,
+                    final_top_k=1,
                     format_type="detailed"
                 )
                 if context_data:
@@ -225,10 +226,13 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
 async def filter_kb_messages(data: dict, context=None) -> dict:
     """Filter KB content from messages, preserving only the two most recent non-assistant messages with KB content."""
     try:
+        debug_box("Top of file_messages kb")
         # Clean up KB content from previous messages if they exist
         if 'messages' in data and isinstance(data['messages'], list):
             # Clean messages to retain KB content only in the two most recent non-assistant messages
             data['messages'] = clean_chat_messages(data['messages'])
+        else:
+            debug_box('No messages in data')
     except Exception as e:
         print(f"Error filtering KB content from messages: {str(e)}")
         # Continue without filtering on error
