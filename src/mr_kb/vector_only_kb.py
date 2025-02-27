@@ -301,6 +301,11 @@ class HierarchicalKnowledgeBase:
                     # Remove from docstore
                     if node_id in self.index.docstore.docs:
                         del self.index.docstore.docs[node_id]
+                        print("Removed from docstore")
+                    else:
+                        print(f"Error: Node {node_id} not found in docstore")
+                        raise ValueError(f"Node {node_id} not found in docstore")
+
                     # Remove from vector store
                     self.index.vector_store.delete(node_id)
                 
