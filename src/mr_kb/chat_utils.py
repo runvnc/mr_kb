@@ -27,7 +27,7 @@ def remove_kb_content(text: str) -> str:
     return re.sub(pattern, KB_REPLACEMENT, text, flags=re.DOTALL).strip()
 
 def clean_chat_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Clean a list of chat messages, removing KB content from non-assistant messages.
+    """Clean a list of chat messages, removing KB content from all but the most recent non-assistant message.
     
     Handles both string content and lists of content objects.
     Only processes content objects of type 'text'.
@@ -37,16 +37,28 @@ def clean_chat_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                  Each message should have 'role' and 'content' keys
                  Content can be string or list of objects with 'type' and 'text'
     
+    
     Returns:
-        Cleaned copy of messages list with KB content removed from non-assistant messages
+        Cleaned copy of messages list with KB content preserved in the most recent non-assistant message
     """
     cleaned_messages = []
     
+    # Find the index of the most recent non-assistant message (if any)
+    preserve_kb_index = None
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i]['role'] != 'assistant':
+            preserve_kb_index = i
+            break
+    
+    # Process each message
     for message in messages:
         cleaned_message = message.copy()
         
-        # Only clean non-assistant messages
-        if message['role'] != 'assistant':
+        # Only clean non-assistant messages that aren't the most recent one
+        if message['role'] != 'assistant' and (
+            preserve_kb_index is None or 
+            message != messages[preserve_kb_index]
+        ):
             content = message.get('content')
             
             # Handle string content

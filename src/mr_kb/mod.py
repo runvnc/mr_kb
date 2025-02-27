@@ -5,6 +5,7 @@ from .vector_only_kb import HierarchicalKnowledgeBase
 import os
 import json
 import datetime
+from .chat_utils import KB_START_DELIMITER, KB_END_DELIMITER, clean_chat_messages
 from lib.utils.debug import debug_box
 
 # Global KB instances cache
@@ -167,6 +168,11 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
     if not data.get('message'):
         return data
         
+    # Clean up KB content from previous messages if they exist
+    if 'messages' in data and isinstance(data['messages'], list):
+        # Clean messages to retain KB content only in the most recent non-assistant message
+        data['messages'] = clean_chat_messages(data['messages'])
+        
     # Get message text
     message = data['message']
     if isinstance(message, list):
@@ -204,13 +210,15 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
 
         if all_results:
             combined_results = "\n\n".join(all_results)
+            # Add KB delimiters
+            delimited_results = f"{KB_START_DELIMITER}\n{combined_results}\n{KB_END_DELIMITER}"
             if isinstance(message, list):
                 data['message'].append({
                     "type": "text",
-                    "text": combined_results
+                    "text": delimited_results
                 })
             else:
-                data['message'] = f"{message}\n\n{combined_results}"
+                data['message'] = f"{message}\n\n{delimited_results}"
     except Exception as e:
         print(f"Error enriching message with KB data: {e}")
         # Continue without KB enrichment on error
