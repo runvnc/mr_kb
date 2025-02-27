@@ -263,7 +263,9 @@ class KnowledgeBaseManager extends BaseEl {
   async deleteDocument(file_path) {
     if (!confirm('Are you sure you want to delete this document?')) return;
     // file_path may have things like / or \, so we need to encode it
-    file_path = encodeURIComponent(file_path);
+    console.log("original file path for deletion: ",file_path)
+    file_path = encodeURI(file_path);
+    console.log("encoded file path for deletion: ",file_path)
     try {
       const response = await fetch(`/api/kb/${this.selectedKb}/documents/${file_path}`, {
         method: 'DELETE'

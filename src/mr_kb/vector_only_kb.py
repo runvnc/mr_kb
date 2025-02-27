@@ -290,7 +290,7 @@ class HierarchicalKnowledgeBase:
                     if hasattr(node.relationships, 'children'):
                         for child in node.relationships.children:
                             nodes_to_remove.add(child.node_id)
-
+                            print(f"Removing child node: {child.node_id} with matching file path {file_path}")
         
             with atomic_index_update(self):
                 # Remove nodes from docstore and vector store
