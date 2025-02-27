@@ -228,6 +228,7 @@ async def filter_kb_messages(data: dict, context=None) -> dict:
     """Filter KB content from messages, preserving only the two most recent non-assistant messages with KB content."""
     try:
         debug_box("Top of file_messages kb")
+        print(data)
         # Clean up KB content from previous messages if they exist
         if 'messages' in data and isinstance(data['messages'], list):
             # Clean messages to retain KB content only in the two most recent non-assistant messages
