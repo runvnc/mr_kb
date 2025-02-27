@@ -35,6 +35,7 @@ class KbSettings extends BaseEl {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
       gap: 12px;
+      margin-bottom: 30px;
     }
 
     .kb-item {
