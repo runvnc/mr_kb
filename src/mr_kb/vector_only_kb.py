@@ -284,14 +284,17 @@ class HierarchicalKnowledgeBase:
             nodes_to_remove = set()
             for node_id, node in self.index.docstore.docs.items():
                 doc_file_path = node.metadata.get('file_path', 'Unknown')
+                print(f"Checking node: {doc_file_path} to match file path: {file_path}")
+
                 if doc_file_path == file_path:
                     nodes_to_remove.add(node_id)
-                    # Also add any child nodes
-                    if hasattr(node.relationships, 'children'):
-                        for child in node.relationships.children:
-                            nodes_to_remove.add(child.node_id)
-                            print(f"Removing child node: {child.node_id} with matching file path {file_path}")
+                    print(f"Removing node: {node_id} with matching file path {file_path}")
+                else:
+                    print(f"Did not match. node metadata was {node.metadata}")
         
+            if len(nodes_to_remove) == 0:
+                raise ValueError(f"No nodes found for document: {file_path}")
+
             with atomic_index_update(self):
                 # Remove nodes from docstore and vector store
                 for node_id in nodes_to_remove:
