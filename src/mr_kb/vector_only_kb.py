@@ -303,6 +303,8 @@ class HierarchicalKnowledgeBase:
                 self.index.vector_store.delete_nodes(nodes_to_remove, delete_from_doctore=True)
                 # Persist updates
                 self.index.storage_context.persist(persist_dir=self.persist_dir)
+                self.index.docstore.persist()
+                print("Saved docstore")
                 self._clear_retriever_cache()
         except Exception as e:
             logger.error(f"Failed to remove document: {str(e)}")
