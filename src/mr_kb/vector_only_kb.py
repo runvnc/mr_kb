@@ -307,6 +307,8 @@ class HierarchicalKnowledgeBase:
                 # Persist updates
                 self.index.storage_context.persist(persist_dir=self.persist_dir)
                 self.index.docstore.persist()
+                #self.index._vector_store.delete_index()
+
                 print("Saved docstore")
                 self._clear_retriever_cache()
         except Exception as e:
