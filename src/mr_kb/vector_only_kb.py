@@ -282,25 +282,28 @@ class HierarchicalKnowledgeBase:
         try:
             debug_box("_________________________________________")
             print("Ref doc info: ", self.index.ref_doc_info)
-            # Get all nodes associated with this document
+                
             nodes_to_remove = set()
-            for node_id, node in self.index.docstore.docs.items():
-                doc_file_path = node.metadata.get('file_path', 'Unknown')
-                print(f"Checking node: {doc_file_path} to match file path: {file_path}")
+            #for node_id, node in self.index.docstore.docs.items():
+            for doc_id, doc in self.index.ref_doc_info.items():
+                doc_file_path = doc.metadata.get('file_path', 'Unknown')
+                print(f"Checking doc: {doc_file_path} to match file path: {file_path}")
 
                 if doc_file_path == file_path:
-                    nodes_to_remove.add(node_id)
-                    print("node =", node)
-                    print("node metadata = ", node.metadata)
-                    print(f"Removing node: {node_id} with matching file path {file_path}")
+                    nodes_to_remove.add(doc_id)
+                    print("doc =", doc)
+                    print("doc metadata = ", doc.metadata)
+                    print(f"Removing doc: {doc_id} with matching file path {file_path}")
                 else:
-                    print(f"Did not match. node metadata was {node.metadata}")
+                    print(f"Did not match. doc metadata was {doc.metadata}")
         
             if len(nodes_to_remove) == 0:
-                raise ValueError(f"No nodes found for document: {file_path}")
+                raise ValueError(f"No docs found for document: {file_path}")
 
             with atomic_index_update(self):
-                self.index.vector_store.delete_nodes(nodes_to_remove, delete_from_doctore=True)
+                for doc_id in nodes_to_remove:
+                    self.index.delete_ref_doc(doc_id, delete_from_docstore=True)
+                    print("Deleted doc: ", doc_id)
                 # Persist updates
                 self.index.storage_context.persist(persist_dir=self.persist_dir)
                 self.index.docstore.persist()
