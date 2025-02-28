@@ -195,8 +195,8 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
                 print(f"Querying KB '{kb_name}' for agent '{agent_name}'")
                 context_data = await kb.get_relevant_context(
                     query_text,
-                    similarity_top_k=15,
-                    final_top_k=6,
+                    similarity_top_k=19,
+                    final_top_k=15,
                     format_type="detailed"
                 )
                 if context_data:
