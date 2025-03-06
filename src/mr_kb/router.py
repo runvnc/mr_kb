@@ -30,6 +30,7 @@ async def list_knowledge_bases(request: Request):
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
+ 
 @router.post("/api/kb/create")
 async def create_knowledge_base(request: Request):
     """Create a new knowledge base"""
@@ -46,6 +47,7 @@ async def create_knowledge_base(request: Request):
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
+ 
 @router.delete("/api/kb/{name}")
 async def delete_knowledge_base(name: str, request: Request):
     """Delete a knowledge base"""
@@ -55,6 +57,7 @@ async def delete_knowledge_base(name: str, request: Request):
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
+ 
 # Agent KB settings endpoints
 
 @router.get("/api/kb/agent/{agent_name}/settings")
@@ -179,6 +182,7 @@ async def upload_document(name: str, file: UploadFile = File(...), request: Requ
             os.unlink(temp_path)
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
+ 
 @router.get("/api/kb/{name}/task/{task_id}")
 async def get_task_status(name: str, task_id: str, request: Request = None):
     """Get status of document processing task"""
@@ -194,15 +198,61 @@ async def get_task_status(name: str, task_id: str, request: Request = None):
     })
 
 @router.get("/api/kb/{name}/documents")
-async def list_documents(name: str, request: Request):
+async def get_documents(name: str, request: Request):
     """Get list of documents in specific KB"""
     try:
         kb = await get_kb_instance(name)
         docs = kb.get_document_info()
+        
+        # Add verbatim status to each document
+        for doc in docs:
+            file_path = doc.get('file_path')
+            is_verbatim = False
+            
+            # Check if document is in verbatim docs
+            for doc_id, info in kb.verbatim_docs.items():
+                if info.get('file_path') == file_path:
+                    is_verbatim = True
+                    break
+                    
+            doc['is_verbatim'] = is_verbatim
+            
         return JSONResponse({"success": True, "data": docs})
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
+ 
+@router.post("/api/kb/{name}/documents/toggle_verbatim")
+async def toggle_document_verbatim(name: str, request: Request):
+    """Toggle verbatim status for a document"""
+    try:
+        data = await request.json()
+        file_path = data.get("file_path")
+        verbatim = data.get("verbatim", False)
+        force_verbatim = data.get("force_verbatim", False)
+        
+        if not file_path:
+            return JSONResponse({"success": False, "message": "File path is required"}, status_code=400)
+            
+        kb = await get_kb_instance(name)
+        
+        # If turning off verbatim, remove from verbatim docs
+        if not verbatim:
+            await kb.remove_verbatim_document(file_path)
+            return JSONResponse({"success": True, "verbatim": False})
+        
+        # If turning on verbatim, add as verbatim document
+        await kb.add_document(
+            file_path=file_path,
+            always_include_verbatim=True,
+            force_verbatim=force_verbatim
+        )
+        
+        return JSONResponse({"success": True, "verbatim": True})
+    except Exception as e:
+        return JSONResponse({"success": False, "message": str(e)}, status_code=500)
+
+ 
 @router.delete("/api/kb/{name}/documents")
 async def delete_document(name: str, request: Request):
     """Delete document from specific KB"""
@@ -213,7 +263,16 @@ async def delete_document(name: str, request: Request):
             return JSONResponse({"success": False, "message": "File path is required"}, status_code=400)
             
         kb = await get_kb_instance(name)
+        
+        # First, check if document is in verbatim docs and remove it if it is
+        try:
+            await kb.remove_verbatim_document(file_path)
+        except Exception as e:
+            print(f"Warning: Error removing verbatim document: {str(e)}")
+            
         await kb.remove_document(file_path)
         return JSONResponse({"success": True})
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
+
+ 

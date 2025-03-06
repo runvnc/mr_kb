@@ -72,6 +72,12 @@ class KnowledgeBaseManager extends BaseEl {
       opacity: 0.8;
     }
 
+    .help-text {
+      margin-top: 10px;
+      font-size: 0.9em;
+      opacity: 0.8;
+    }
+
     .doc-list {
       width: 100%;
       border-collapse: collapse;
@@ -88,6 +94,16 @@ class KnowledgeBaseManager extends BaseEl {
     .doc-list th {
       background: rgba(0, 0, 0, 0.2);
       font-weight: 500;
+    }
+
+    .doc-list input[type="checkbox"] {
+      cursor: pointer;
+      width: 18px;
+      height: 18px;
+    }
+
+    .doc-list td:nth-child(5) {
+      text-align: center;
     }
 
     .actions {
@@ -279,6 +295,32 @@ class KnowledgeBaseManager extends BaseEl {
     }
   }
 
+  async toggleVerbatim(file_path, isVerbatim, event) {
+    // Prevent the event from bubbling up to parent elements
+    if (event) {
+      event.stopPropagation();
+    }
+    
+    try {
+      const response = await fetch(`/api/kb/${this.selectedKb}/documents/toggle_verbatim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_path: file_path,
+          verbatim: isVerbatim,
+          force_verbatim: false // Could add a UI for this option later
+        })
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        await this.fetchDocuments(); // Refresh document list
+      }
+    } catch (error) {
+      console.error('Error toggling verbatim status:', error);
+    }
+  }
+
   render() {
     return html`
       <div class="kb-manager">
@@ -326,6 +368,11 @@ class KnowledgeBaseManager extends BaseEl {
               </div>
             ` : ''}
 
+            <!-- Help text for verbatim feature -->
+            <div class="help-text">
+              <p><strong>Verbatim:</strong> When checked, the document will always be included in full in search results, regardless of query relevance.</p>
+            </div>
+
             <!-- Documents List -->
             <table class="doc-list">
               <thead>
@@ -334,6 +381,7 @@ class KnowledgeBaseManager extends BaseEl {
                   <th>Type</th>
                   <th>Added</th>
                   <th>Size</th>
+                  <th>Verbatim</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -344,6 +392,13 @@ class KnowledgeBaseManager extends BaseEl {
                     <td>${doc.file_type}</td>
                     <td>${new Date(doc.creation_date).toLocaleString()}</td>
                     <td>${doc.size}</td>
+                    <td>
+                      <input type="checkbox" 
+                             ?checked=${doc.is_verbatim} 
+                             @change=${(e) => this.toggleVerbatim(doc.file_path, e.target.checked, e)}
+                             @click=${(e) => e.stopPropagation()}
+                             title="When checked, this document will always be included in full in search results">
+                    </td>
                     <td>
                       <button class="delete"
                               @click=${() => this.deleteDocument(doc.file_path)}>
