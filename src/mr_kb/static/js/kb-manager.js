@@ -295,6 +295,7 @@ class KnowledgeBaseManager extends BaseEl {
     }
   }
 
+  // Toggle verbatim status for a document
   async toggleVerbatim(file_path, isVerbatim, event) {
     // Prevent the event from bubbling up to parent elements
     if (event) {
@@ -315,9 +316,19 @@ class KnowledgeBaseManager extends BaseEl {
       const result = await response.json();
       if (result.success) {
         await this.fetchDocuments(); // Refresh document list
+      } else {
+        // Show error message
+        this.uploadStatus = `Error: ${result.message || 'Failed to toggle verbatim status'}`;
+        // Refresh documents to reset checkbox state
+        await this.fetchDocuments();
+        // Clear error after 5 seconds
+        setTimeout(() => {
+          this.uploadStatus = '';
+        }, 5000);
       }
     } catch (error) {
       console.error('Error toggling verbatim status:', error);
+      this.uploadStatus = `Error: ${error.message || 'Failed to toggle verbatim status'}`;
     }
   }
 

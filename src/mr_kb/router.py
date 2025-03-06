@@ -204,16 +204,20 @@ async def get_documents(name: str, request: Request):
         kb = await get_kb_instance(name)
         docs = kb.get_document_info()
         
+        # Check if kb has verbatim_docs attribute (for backward compatibility)
+        has_verbatim_support = hasattr(kb, 'verbatim_docs')
+        
         # Add verbatim status to each document
         for doc in docs:
             file_path = doc.get('file_path')
             is_verbatim = False
             
-            # Check if document is in verbatim docs
-            for doc_id, info in kb.verbatim_docs.items():
-                if info.get('file_path') == file_path:
-                    is_verbatim = True
-                    break
+            # Check if document is in verbatim docs (if supported)
+            if has_verbatim_support:
+                for doc_id, info in kb.verbatim_docs.items():
+                    if info.get('file_path') == file_path:
+                        is_verbatim = True
+                        break
                     
             doc['is_verbatim'] = is_verbatim
             
@@ -235,6 +239,12 @@ async def toggle_document_verbatim(name: str, request: Request):
             return JSONResponse({"success": False, "message": "File path is required"}, status_code=400)
             
         kb = await get_kb_instance(name)
+        
+        # Check if kb has verbatim support
+        if not hasattr(kb, 'verbatim_docs'):
+            return JSONResponse({"success": False, 
+                               "message": "This knowledge base was created with an older version and doesn't support verbatim documents"}, 
+                               status_code=400)
         
         # If turning off verbatim, remove from verbatim docs
         if not verbatim:
@@ -264,11 +274,14 @@ async def delete_document(name: str, request: Request):
             
         kb = await get_kb_instance(name)
         
-        # First, check if document is in verbatim docs and remove it if it is
-        try:
-            await kb.remove_verbatim_document(file_path)
-        except Exception as e:
-            print(f"Warning: Error removing verbatim document: {str(e)}")
+        # First, check if document is in verbatim docs and remove it if it is (if supported)
+        if hasattr(kb, 'verbatim_docs'):
+            try:
+                await kb.remove_verbatim_document(file_path)
+            except Exception as e:
+                print(f"Warning: Error removing verbatim document: {str(e)}")
+        else:
+            print(f"Knowledge base {name} doesn't support verbatim documents")
             
         await kb.remove_document(file_path)
         return JSONResponse({"success": True})
