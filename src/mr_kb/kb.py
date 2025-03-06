@@ -663,40 +663,40 @@ class HierarchicalKnowledgeBase:
                 regular_results.append(result)
         
         # Format for detailed view
-            context = "### [Retrieved Knowledge Base Results]\n"
-            context += "Note: Results are ranked by relevance. 'Essential Documents' are always included.\n\n"
+        context = "### [Retrieved Knowledge Base Results]\n"
+        context += "Note: Results are ranked by relevance. 'Essential Documents' are always included.\n\n"
             
-            # Add verbatim documents first with special formatting
-            if verbatim_results:
-                context += "## ESSENTIAL DOCUMENTS\n\n"
+        # Add verbatim documents first with special formatting
+        if verbatim_results:
+            context += "## ESSENTIAL DOCUMENTS\n\n"
+            context += "=" * 80 + "\n\n"  # Distinctive separator
+            
+            for text, metadata, _, chunk_size in verbatim_results:
+                # Format metadata header
+                context += f"[ESSENTIAL: {metadata.get('file_name', 'Document')} | "
+                context += f"Path: {metadata.get('file_path', 'Unknown')}]\n"
+                context += f"{text}\n"
                 context += "=" * 80 + "\n\n"  # Distinctive separator
-                
-                for text, metadata, _, chunk_size in verbatim_results:
-                    # Format metadata header
-                    context += f"[ESSENTIAL: {metadata.get('file_name', 'Document')} | "
-                    context += f"Path: {metadata.get('file_path', 'Unknown')}]\n"
-                    context += f"{text}\n"
-                    context += "=" * 80 + "\n\n"  # Distinctive separator
+        
+        # Add regular results
+        if regular_results:
+            context += "## RELATED CONTENT\n\n"
+            context += "Note: Results are ranked by relevance score. Higher scores indicate stronger matches.\n"
+            context += "Some results with lower scores may be less relevant or unrelated to user query.\n\n"
             
-            # Add regular results
-            if regular_results:
-                context += "## RELATED CONTENT\n\n"
-                context += "Note: Results are ranked by relevance score. Higher scores indicate stronger matches.\n"
-                context += "Some results with lower scores may be less relevant or unrelated to user query.\n\n"
-                
-                for text, metadata, score, chunk_size in regular_results:
-                    # Extract metadata fields
-                    file_name = metadata.get('file_name', 'Unknown')
-                    file_type = metadata.get('file_type', 'Unknown')
-                    creation_date = metadata.get('creation_date', 'Unknown')
-                    # Format metadata header
-                    context += f"[File: {file_name} | Type: {file_type} | "
-                    context += f"Created: {creation_date} | "
-                    context += f"Score: {score:.3f} | Size: {chunk_size}]\n"
-                    context += f"{text}\n"
-                    context += "-" * 80 + "\n\n"  # Separator between chunks
-                
-                context += "[End of Retrieved Results]\n"
+            for text, metadata, score, chunk_size in regular_results:
+                # Extract metadata fields
+                file_name = metadata.get('file_name', 'Unknown')
+                file_type = metadata.get('file_type', 'Unknown')
+                creation_date = metadata.get('creation_date', 'Unknown')
+                # Format metadata header
+                context += f"[File: {file_name} | Type: {file_type} | "
+                context += f"Created: {creation_date} | "
+                context += f"Score: {score:.3f} | Size: {chunk_size}]\n"
+                context += f"{text}\n"
+                context += "-" * 80 + "\n\n"  # Separator between chunks
+            
+            context += "[End of Retrieved Results]\n"
 
         # end timing
         end_time = datetime.datetime.now()

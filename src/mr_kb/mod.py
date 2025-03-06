@@ -1,7 +1,7 @@
 from lib.providers.services import service
 from lib.providers.commands import command
 from lib.pipelines.pipe import pipe
-from .vector_only_kb import HierarchicalKnowledgeBase
+from .kb import HierarchicalKnowledgeBase
 import os
 import json
 import traceback
@@ -118,8 +118,7 @@ async def query_kb(name: str, query: str, context=None):
     kb = await get_kb_instance(name)
     results = await kb.get_relevant_context(
         query,
-        similarity_top_k=5,
-        format_type="detailed"
+        similarity_top_k=5
     )
     return results
 
@@ -196,8 +195,7 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
                 context_data = await kb.get_relevant_context(
                     query_text,
                     similarity_top_k=19,
-                    final_top_k=15,
-                    format_type="detailed"
+                    final_top_k=15
                 )
                 if context_data:
                     all_results.append(f"From KB '{kb_name}':\n{context_data}")
