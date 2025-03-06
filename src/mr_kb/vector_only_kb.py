@@ -162,10 +162,8 @@ class HierarchicalKnowledgeBase:
             if self.supported_types[".docx"]:
                 file_extractor[".docx"] = DocxReader()
             
-            # Skip if index exists and flag is set
-           
-            # Load documents with custom handlers
             documents = SimpleDirectoryReader(data_dir, file_extractor=file_extractor).load_data()
+
             if not documents:
                 raise ValueError(f"No documents found in {data_dir}")
                 
@@ -199,7 +197,8 @@ class HierarchicalKnowledgeBase:
     
     async def add_document(self, file_path: str, 
                           progress_callback: Optional[Callable[[float], None]] = None,
-                          refresh_mode: bool = True):
+                          refresh_mode: bool = True,
+                          always_include_verbatim: bool = False):
         """Add a single new document to the index.
         
         Args:
@@ -216,7 +215,17 @@ class HierarchicalKnowledgeBase:
             documents = SimpleDirectoryReader(input_files=[file_path], 
                                               filename_as_id=True,
                                               file_extractor=file_extractor).load_data()
-            
+ 
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1')
+ 
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1')
+  
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1')
+ 
+            print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1')
+            print(documents)
+
+
             if not documents:
                 raise ValueError(f"No content found in {file_path}")
             
