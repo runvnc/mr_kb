@@ -17,6 +17,7 @@ import shutil
 import datetime
 import json
 from lib.utils.debug import debug_box
+import re
 import llama_index.core.instrumentation as instrument
 from llama_index.core.instrumentation.events.retrieval import RetrievalStartEvent, RetrievalEndEvent
 from llama_index.core.instrumentation.event_handlers import BaseEventHandler
@@ -85,6 +86,22 @@ class HierarchicalKnowledgeBase:
         self.file_handlers = get_file_handlers(self.supported_types)
         self.supported_types = get_supported_file_types()
         self.batch_size = batch_size
+        
+        # Add verbatim document tracking
+        self.verbatim_docs_dir = os.path.join(persist_dir, "verbatim_docs")
+        self.verbatim_docs_index_path = os.path.join(persist_dir, "verbatim_docs_index.json")
+        self.verbatim_docs = {}
+        
+        # Create verbatim docs directory if it doesn't exist
+        os.makedirs(self.verbatim_docs_dir, exist_ok=True)
+        
+        # Load verbatim docs index if it exists
+        if os.path.exists(self.verbatim_docs_index_path):
+            try:
+                with open(self.verbatim_docs_index_path, 'r') as f:
+                    self.verbatim_docs = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load verbatim docs index: {str(e)}")
         
         # Configure embedding model        # Configure embedding model
         if embedding_model is None or embedding_model.lower() == 'openai':
@@ -198,18 +215,30 @@ class HierarchicalKnowledgeBase:
     async def add_document(self, file_path: str, 
                           progress_callback: Optional[Callable[[float], None]] = None,
                           refresh_mode: bool = True,
-                          always_include_verbatim: bool = False):
+                          always_include_verbatim: bool = False,
+                          force_verbatim: bool = False):
         """Add a single new document to the index.
         
         Args:
             file_path: Path to the document to add
             progress_callback: Optional callback for progress updates
             refresh_mode: If True, use refresh_ref_docs instead of insert_nodes
+            always_include_verbatim: If True, always include this document's full text
+                                    in retrieval results regardless of query relevance
+            force_verbatim: If True, include document as verbatim even if it's large
         """
         if not self.index:
             raise ValueError("Index not initialized. Call create_index first.")
 
         try:
+            # Check if file exists
+            if not os.path.exists(file_path):
+                raise ValueError(f"File not found: {file_path}")
+            
+            # Handle verbatim document if requested
+            if always_include_verbatim:
+                await self._add_verbatim_document(file_path, progress_callback, force_verbatim)
+            
             # Load and process new document
             file_extractor = self._get_file_extractors()
             documents = SimpleDirectoryReader(input_files=[file_path], 
@@ -273,6 +302,65 @@ class HierarchicalKnowledgeBase:
             logger.error(f"Failed to add document: {str(e)}")
             raise DocumentProcessingError(f"Document addition failed: {str(e)}") from e
 
+    async def _add_verbatim_document(self, file_path: str, progress_callback: Optional[Callable] = None, force_verbatim: bool = False):
+        """Extract and store the full text of a document for verbatim inclusion in results.
+        
+        Args:
+            file_path: Path to the document to add as verbatim
+            progress_callback: Optional callback for progress updates
+            force_verbatim: If True, include document as verbatim even if it's large
+        """
+        try:
+            # Use the existing text_extractor module
+            from .text_extractor import extract_text_from_file, get_file_metadata
+            
+            # Extract full text
+            full_text = await extract_text_from_file(file_path)
+            
+            # Check document size - limit verbatim inclusion for very large documents
+            MAX_VERBATIM_SIZE = 50000  # ~50KB, adjust as needed
+            if len(full_text) > MAX_VERBATIM_SIZE and not force_verbatim:
+                logger.warning(f"Document {os.path.basename(file_path)} exceeds verbatim size limit "
+                              f"({len(full_text)} > {MAX_VERBATIM_SIZE}). "
+                              f"Not adding as verbatim. Use force_verbatim=True to override.")
+                return
+            
+            # Get file metadata
+            metadata = await get_file_metadata(file_path)
+            
+            # Update progress callback
+            if progress_callback:
+                progress_callback(0.2)  # 20% progress for extraction
+            
+            # Generate a unique ID for the document
+            doc_id = os.path.basename(file_path)
+            safe_doc_id = re.sub(r'[^\w\-\.]', '_', doc_id)  # Make filename safe
+            
+            # Store metadata about the document
+            verbatim_path = os.path.join(self.verbatim_docs_dir, f"{safe_doc_id}.txt")
+            self.verbatim_docs[safe_doc_id] = {
+                "file_path": file_path,
+                "file_name": metadata["file_name"],
+                "file_type": metadata["file_type"],
+                "added_at": datetime.datetime.now().isoformat(),
+                "size": len(full_text),
+                "verbatim_path": verbatim_path
+            }
+            
+            # Save the full text to a file
+            with open(verbatim_path, 'w', encoding='utf-8') as f:
+                f.write(full_text)
+            
+            # Save the updated verbatim docs index
+            with open(self.verbatim_docs_index_path, 'w') as f:
+                json.dump(self.verbatim_docs, f, indent=2)
+            
+            logger.info(f"Added verbatim document: {file_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to add verbatim document: {str(e)}")
+            raise DocumentProcessingError(f"Verbatim document addition failed: {str(e)}") from e
+
     async def remove_document(self, file_path: str):
         """Remove a document and all its hierarchical nodes from the index."""
         if not self.index:
@@ -314,6 +402,42 @@ class HierarchicalKnowledgeBase:
             logger.error(f"Failed to remove document: {str(e)}")
             raise DocumentProcessingError(f"Document removal failed: {str(e)}") from e
  
+    async def remove_verbatim_document(self, file_path: str):
+        """Remove a verbatim document.
+        
+        Args:
+            file_path: Path to the document to remove
+        """
+        try:
+            # Find the document in the verbatim docs index
+            doc_id = None
+            for id, info in self.verbatim_docs.items():
+                if info["file_path"] == file_path:
+                    doc_id = id
+                    break
+            
+            if doc_id is None:
+                logger.warning(f"Verbatim document not found: {file_path}")
+                return
+            
+            # Remove the verbatim text file
+            verbatim_path = self.verbatim_docs[doc_id]["verbatim_path"]
+            if os.path.exists(verbatim_path):
+                os.remove(verbatim_path)
+            
+            # Remove from the index
+            del self.verbatim_docs[doc_id]
+            
+            # Save the updated verbatim docs index
+            with open(self.verbatim_docs_index_path, 'w') as f:
+                json.dump(self.verbatim_docs, f, indent=2)
+            
+            logger.info(f"Removed verbatim document: {file_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to remove verbatim document: {str(e)}")
+            raise DocumentProcessingError(f"Verbatim document removal failed: {str(e)}") from e
+
     def get_document_info(self) -> List[Dict]:
         """Get information about all documents and their hierarchical structure."""
         if not self.index:
@@ -371,6 +495,39 @@ class HierarchicalKnowledgeBase:
 
         return docs_info
     
+    def _get_verbatim_documents(self):
+        """Get all verbatim documents.
+        
+        Returns:
+            List of tuples (text, metadata, score, chunk_size) for all verbatim documents
+        """
+        verbatim_results = []
+        
+        for doc_id, info in self.verbatim_docs.items():
+            try:
+                # Read the verbatim text file
+                verbatim_path = info["verbatim_path"]
+                if os.path.exists(verbatim_path):
+                    with open(verbatim_path, 'r', encoding='utf-8') as f:
+                        text = f.read()
+                    
+                    # Create metadata for the document
+                    metadata = {
+                        "file_name": info["file_name"],
+                        "file_path": info["file_path"],
+                        "file_type": info.get("file_type", "Unknown"),
+                        "is_verbatim": True,
+                        "added_at": info["added_at"]
+                    }
+                    
+                    # Add to results with a high score to ensure inclusion
+                    # Use 2.0 to ensure it ranks higher than any similarity match
+                    verbatim_results.append((text, metadata, 2.0, len(text)))
+            except Exception as e:
+                logger.error(f"Failed to read verbatim document {doc_id}: {str(e)}")
+        
+        return verbatim_results
+
     async def query(self, query_text: str, similarity_top_k: int = 12):
         """Query the index."""
         if not self.index:
@@ -399,7 +556,7 @@ class HierarchicalKnowledgeBase:
         print("Cleared retriever cache")
 
     @dispatcher.span
-    async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15, final_top_k: int = 6, min_score: float = 0.69, include_verbatim: bool = True):
+    async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15, final_top_k: int = 6, min_score: float = 0.69, include_verbatim: bool = True ):
         """Get raw retrieval results without LLM synthesis.
         
         Returns:
@@ -407,6 +564,13 @@ class HierarchicalKnowledgeBase:
             chunk_size helps identify which level of the hierarchy the node is from
         """
         debug_box("Starting retrieval")
+        
+        # Add verbatim documents if requested
+        verbatim_results = []
+        if include_verbatim:
+            verbatim_results = self._get_verbatim_documents()
+            logger.info(f"Including {len(verbatim_results)} verbatim documents in retrieval results")
+        
         try:
             if not self.index:
                 raise ValueError("Index not initialized.")
@@ -441,79 +605,108 @@ class HierarchicalKnowledgeBase:
             enhanced_results = enhance_search_results(query_text, raw_results, 
                                                     initial_top_k=similarity_top_k,
                                                     final_top_k=final_top_k)
-
+            
+            # Add verbatim documents if available
+            if verbatim_results:
+                # Combine results
+                combined_results = verbatim_results + enhanced_results
+                # Sort by score (descending)
+                combined_results.sort(key=lambda x: x[2], reverse=True)
+                # Limit to final_top_k + number of verbatim docs
+                # This ensures all verbatim docs are included plus up to final_top_k regular results
+                return combined_results[:len(verbatim_results) + final_top_k]
+            
+            return enhanced_results
+            
         except Exception as e:
             trace = traceback.format_exc()
             print(f"Retrieval failed: {str(e)} \n {trace}")
-            raise DocumentProcessingErrorError(f"Retrieval failed: {str(e)} \n {trace}") from e
+            raise DocumentProcessingError(f"Retrieval failed: {str(e)} \n {trace}") from e
 
 
-        return enhanced_results
-    
+
     async def get_relevant_context(self, query_text: str, 
                             similarity_top_k: int = 15,
                             final_top_k: int = 6,
-                            format_type: str = "detailed", 
-                            min_score: float = 0.65) -> str:
+                            min_score: float = 0.65,
+                            include_verbatim: bool = True) -> str:
         """Get formatted context from relevant nodes.
         
         Args:
             query_text: The query to match against
             similarity_top_k: Number of matches to retrieve
-            format_type: How to format output ('markdown', 'plain', or 'detailed')
             final_top_k: Number of results to return after score enhancement
             min_score: Minimum similarity score to include (0.0 to 1.0)
+            include_verbatim: Whether to include verbatim documents
         
         Returns:
             Formatted string with relevant context
         """
         query_stats = {}
-        # start timing
+        
+        # Start timing
         start_time = datetime.datetime.now()
 
-        results = await self.retrieve_relevant_nodes(query_text, similarity_top_k, final_top_k, min_score)
-        
+        results = await self.retrieve_relevant_nodes(query_text, similarity_top_k, final_top_k, min_score, include_verbatim)
         if not results:
             return ""
             
-        if format_type == "markdown":
-            context = "### [Retrieved from knowledge base]\n\n"
-            for text, _, score, _ in results:
-                context += f"> {text}\n\n"
-        elif format_type == "plain":
-            context = "[Retrieved from knowledge base]\n\n"
-            context += "\n\n".join(text for text, _, _, _ in results)
-        else:  # detailed
+        # Separate verbatim and regular results
+        verbatim_results = []
+        regular_results = []
+        
+        for result in results:
+            text, metadata, score, chunk_size = result
+            if metadata.get("is_verbatim", False):
+                verbatim_results.append(result)
+            else:
+                regular_results.append(result)
+        
+        # Format for detailed view
             context = "### [Retrieved Knowledge Base Results]\n"
-            context += "Note: Results are ranked by relevance score. Higher scores indicate stronger matches.\n"
-            context += "Some results with lower scores may be less relevant or unrelated to user query.\n\n"
-            context += "=" * 80 + "\n\n"  # Distinctive separator at start
-
-            for text, metadata, score, chunk_size in results:
-                # Extract metadata fields
-                file_name = metadata.get('file_name', 'Unknown')
-                file_type = metadata.get('file_type', 'Unknown')
-                creation_date = metadata.get('creation_date', 'Unknown')
-                # Format metadata header
-                context += f"[File: {file_name} | Type: {file_type} | "
-                context += f"Created: {creation_date} | "
-                context += f"Score: {score:.3f} | Size: {chunk_size}]\n"
-                context += f"{text}\n"
-                context += "-" * 80 + "\n\n"  # Separator between chunks
+            context += "Note: Results are ranked by relevance. 'Essential Documents' are always included.\n\n"
             
-            context += "=" * 80 + "\n"  # Distinctive separator at end
-            context += "[End of Retrieved Results]\n"
+            # Add verbatim documents first with special formatting
+            if verbatim_results:
+                context += "## ESSENTIAL DOCUMENTS\n\n"
+                context += "=" * 80 + "\n\n"  # Distinctive separator
+                
+                for text, metadata, _, chunk_size in verbatim_results:
+                    # Format metadata header
+                    context += f"[ESSENTIAL: {metadata.get('file_name', 'Document')} | "
+                    context += f"Path: {metadata.get('file_path', 'Unknown')}]\n"
+                    context += f"{text}\n"
+                    context += "=" * 80 + "\n\n"  # Distinctive separator
+            
+            # Add regular results
+            if regular_results:
+                context += "## RELATED CONTENT\n\n"
+                context += "Note: Results are ranked by relevance score. Higher scores indicate stronger matches.\n"
+                context += "Some results with lower scores may be less relevant or unrelated to user query.\n\n"
+                
+                for text, metadata, score, chunk_size in regular_results:
+                    # Extract metadata fields
+                    file_name = metadata.get('file_name', 'Unknown')
+                    file_type = metadata.get('file_type', 'Unknown')
+                    creation_date = metadata.get('creation_date', 'Unknown')
+                    # Format metadata header
+                    context += f"[File: {file_name} | Type: {file_type} | "
+                    context += f"Created: {creation_date} | "
+                    context += f"Score: {score:.3f} | Size: {chunk_size}]\n"
+                    context += f"{text}\n"
+                    context += "-" * 80 + "\n\n"  # Separator between chunks
+                
+                context += "[End of Retrieved Results]\n"
 
         # end timing
         end_time = datetime.datetime.now()
         total_time = end_time - start_time
         query_stats['total_time'] = total_time
         query_stats['retriever_creation'] = bool(self._retriever is None)
+        query_stats['verbatim_docs'] = len(verbatim_results)
         
         print(f"Time taken to get relevant context: {total_time}")
         print(f"Retrievers {'created' if query_stats['retriever_creation'] else 'reused'}")
+        print(f"Verbatim documents included: {len(verbatim_results)}")
 
         return context.strip(), query_stats
-
-
-
