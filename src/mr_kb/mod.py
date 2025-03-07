@@ -130,7 +130,7 @@ async def query_kb(kb_name: str, match_text: str, context=None):
         final_top_k=15
     )
     str_results = f"From KB:\n\n{results}"
-    return results
+    return str_results
 
 
 @command()
