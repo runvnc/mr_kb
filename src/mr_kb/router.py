@@ -1,12 +1,15 @@
 from fastapi import APIRouter, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse
 from lib.templates import render
+from .kb import HierarchicalKnowledgeBase
 from .mod import get_kb_instance, create_kb, list_kbs, delete_kb, add_to_kb
 import os
 import tempfile
 import uuid
+import shutil
 import asyncio
 import json
+import datetime
 
 # Dictionary to store processing tasks and their status
 processing_tasks = {}
@@ -124,11 +127,8 @@ async def process_document_with_progress(name, file_path, task_id):
         # Update task status to indicate completion
         processing_tasks[task_id]["status"] = "complete"
         processing_tasks[task_id]["progress"] = 100
+        processing_tasks[task_id]["permanent_path"] = file_path  # Store the permanent path
         
-        # Clean up temp file
-        if os.path.exists(file_path):
-            os.unlink(file_path)
-            
         # Schedule task cleanup after some time
         asyncio.create_task(cleanup_task(task_id, 300))  # Clean up after 5 minutes
         
@@ -151,12 +151,35 @@ async def cleanup_task(task_id, delay_seconds):
 async def upload_document(name: str, file: UploadFile = File(...), request: Request = None):
     """Handle document upload to specific KB"""
     try:
-        # Create temp file with original extension
+        # Get KB instance to get storage directory
+        kb = await get_kb_instance(name)
+        
+        # Create uploads directory if it doesn't exist
+        uploads_dir = os.path.join(kb.persist_dir, "uploads")
+        os.makedirs(uploads_dir, exist_ok=True)
+        
+        # Generate a safe filename
+        original_filename = file.filename
         suffix = os.path.splitext(file.filename)[1]
+        safe_filename = re.sub(r'[^\w\-\.]', '_', original_filename)
+        
+        # Create a unique filename to avoid overwriting
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_filename = f"{timestamp}_{safe_filename}"
+        permanent_path = os.path.join(uploads_dir, unique_filename)
+        
+        # First save to temp file
         with tempfile.NamedTemporaryFile(delete=False, prefix=file.filename, suffix=suffix) as tmp:
             content = await file.read()
             tmp.write(content)
             temp_path = tmp.name
+        
+        # Copy to permanent location
+        shutil.copy2(temp_path, permanent_path)
+        
+        # Clean up temp file after copying
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
 
         # Create a task ID for tracking progress
         task_id = str(uuid.uuid4())
@@ -165,11 +188,13 @@ async def upload_document(name: str, file: UploadFile = File(...), request: Requ
         processing_tasks[task_id] = {
             "status": "queued",
             "progress": 0,
-            "file_name": file.filename
+            "file_name": file.filename,
+            "permanent_path": permanent_path
         }
         
         # Start background task for processing
-        asyncio.create_task(process_document_with_progress(name, temp_path, task_id))
+        # Use permanent path for processing
+        asyncio.create_task(process_document_with_progress(name, permanent_path, task_id))
         
         return JSONResponse({
             "success": True, 
@@ -178,7 +203,7 @@ async def upload_document(name: str, file: UploadFile = File(...), request: Requ
 
     except Exception as e:
         # Clean up temp file if it exists
-        if 'temp_path' in locals() and os.path.exists(temp_path):
+        if 'temp_path' in locals() and os.path.exists(temp_path) and 'permanent_path' not in locals():
             os.unlink(temp_path)
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
@@ -194,6 +219,7 @@ async def get_task_status(name: str, task_id: str, request: Request = None):
         "status": processing_tasks[task_id]["status"],
         "progress": processing_tasks[task_id]["progress"],
         "file_name": processing_tasks[task_id]["file_name"],
+        "permanent_path": processing_tasks[task_id].get("permanent_path", ""),
         "message": processing_tasks[task_id].get("message", "")
     })
 
@@ -246,6 +272,19 @@ async def toggle_document_verbatim(name: str, request: Request):
                                "message": "This knowledge base was created with an older version and doesn't support verbatim documents"}, 
                                status_code=400)
         
+        # Check if file exists at the given path
+        if not os.path.exists(file_path):
+            # Try to find the file in the uploads directory
+            kb_instance = kb
+            if isinstance(kb_instance, HierarchicalKnowledgeBase):
+                uploads_dir = os.path.join(kb_instance.persist_dir, "uploads")
+                filename = os.path.basename(file_path)
+                # Look for files with the same name in the uploads directory
+                for f in os.listdir(uploads_dir):
+                    if f.endswith(filename):
+                        file_path = os.path.join(uploads_dir, f)
+                        break
+        
         # If turning off verbatim, remove from verbatim docs
         if not verbatim:
             await kb.remove_verbatim_document(file_path)
@@ -273,6 +312,26 @@ async def delete_document(name: str, request: Request):
             return JSONResponse({"success": False, "message": "File path is required"}, status_code=400)
             
         kb = await get_kb_instance(name)
+        
+        # Check if file exists at the given path
+        if not os.path.exists(file_path):
+            # Try to find the file in the uploads directory
+            kb_instance = kb
+            if isinstance(kb_instance, HierarchicalKnowledgeBase):
+                uploads_dir = os.path.join(kb_instance.persist_dir, "uploads")
+                filename = os.path.basename(file_path)
+                # Look for files with the same name in the uploads directory
+                for f in os.listdir(uploads_dir):
+                    if f.endswith(filename):
+                        permanent_path = os.path.join(uploads_dir, f)
+                        # Delete the permanent file
+                        try:
+                            if os.path.exists(permanent_path):
+                                os.remove(permanent_path)
+                                print(f"Deleted permanent file: {permanent_path}")
+                        except Exception as e:
+                            print(f"Warning: Error deleting permanent file: {str(e)}")
+                        break
         
         # First, check if document is in verbatim docs and remove it if it is (if supported)
         if hasattr(kb, 'verbatim_docs'):
