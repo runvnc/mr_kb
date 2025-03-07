@@ -10,6 +10,7 @@ import shutil
 import asyncio
 import json
 import datetime
+import re
 
 # Dictionary to store processing tasks and their status
 processing_tasks = {}
@@ -110,6 +111,9 @@ async def update_agent_kb_settings(agent_name: str, request: Request):
 async def process_document_with_progress(name, file_path, task_id):
     """Process document with progress tracking"""
     try:
+        # Debug information
+        print(f"Starting document processing for KB: {name}, file: {file_path}, task_id: {task_id}")
+        
         # Get KB instance
         kb = await get_kb_instance(name)
         
@@ -122,6 +126,11 @@ async def process_document_with_progress(name, file_path, task_id):
             processing_tasks[task_id]["progress"] = int(progress * 100)
         
         # Add document to KB with progress tracking
+        # Check if file exists
+        if not os.path.exists(file_path):
+            raise ValueError(f"File not found: {file_path}")
+            
+        print(f"File exists, adding document to KB: {file_path}")
         await kb.add_document(file_path, progress_callback=progress_callback)
         
         # Update task status to indicate completion
@@ -133,6 +142,11 @@ async def process_document_with_progress(name, file_path, task_id):
         asyncio.create_task(cleanup_task(task_id, 300))  # Clean up after 5 minutes
         
     except Exception as e:
+        # Print detailed error information
+        import traceback
+        print(f"Error in process_document_with_progress: {str(e)}")
+        print(traceback.format_exc())
+        
         # Update task status to indicate error
         processing_tasks[task_id]["status"] = "error"
         processing_tasks[task_id]["message"] = str(e)
@@ -151,20 +165,30 @@ async def cleanup_task(task_id, delay_seconds):
 async def upload_document(name: str, file: UploadFile = File(...), request: Request = None):
     """Handle document upload to specific KB"""
     try:
+        # Debug information
+        print(f"Starting upload for KB: {name}, file: {file.filename}")
+        
         # Get KB instance to get storage directory
         kb = await get_kb_instance(name)
         
         # Create uploads directory if it doesn't exist
         uploads_dir = os.path.join(kb.persist_dir, "uploads")
         os.makedirs(uploads_dir, exist_ok=True)
+        # Verify the directory was created
+        if not os.path.exists(uploads_dir):
+            raise ValueError(f"Failed to create uploads directory: {uploads_dir}")
+        print(f"Uploads directory: {uploads_dir}")
         
         # Generate a safe filename
         original_filename = file.filename
+        print(f"Original filename: {original_filename}")
         suffix = os.path.splitext(file.filename)[1]
         safe_filename = re.sub(r'[^\w\-\.]', '_', original_filename)
         
         # Create a unique filename to avoid overwriting
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        current_time = datetime.datetime.now()
+        timestamp = current_time.strftime("%Y%m%d_%H%M%S")
+        print(f"Timestamp: {timestamp}")
         unique_filename = f"{timestamp}_{safe_filename}"
         permanent_path = os.path.join(uploads_dir, unique_filename)
         
@@ -173,9 +197,15 @@ async def upload_document(name: str, file: UploadFile = File(...), request: Requ
             content = await file.read()
             tmp.write(content)
             temp_path = tmp.name
+        print(f"Temp path: {temp_path}, Permanent path: {permanent_path}")
         
         # Copy to permanent location
         shutil.copy2(temp_path, permanent_path)
+        
+        # Verify the file was copied successfully
+        if not os.path.exists(permanent_path):
+            raise ValueError(f"Failed to copy file to permanent location: {permanent_path}")
+        print(f"File copied successfully to: {permanent_path}")
         
         # Clean up temp file after copying
         if os.path.exists(temp_path):
@@ -202,10 +232,15 @@ async def upload_document(name: str, file: UploadFile = File(...), request: Requ
         })
 
     except Exception as e:
+        # Print detailed error information
+        import traceback
+        print(f"Error in upload_document: {str(e)}")
+        print(traceback.format_exc())
+        
         # Clean up temp file if it exists
         if 'temp_path' in locals() and os.path.exists(temp_path) and 'permanent_path' not in locals():
             os.unlink(temp_path)
-        return JSONResponse({"success": False, "message": str(e)}, status_code=500)
+        return JSONResponse({"success": False, "message": f"Upload failed: {str(e)}"}, status_code=500)
 
  
 @router.get("/api/kb/{name}/task/{task_id}")
