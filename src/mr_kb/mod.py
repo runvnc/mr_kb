@@ -126,8 +126,10 @@ async def query_kb(kb_name: str, match_text: str, context=None):
     kb = await get_kb_instance(kb_name)
     results = await kb.get_relevant_context(
         match_text,
-        similarity_top_k=15
+        similarity_top_k=15,
+        final_top_k=15
     )
+    str_results = f"From KB:\n\n{results}"
     return results
 
 
