@@ -36,29 +36,22 @@ async def create_kb(name: str, description: str = ""):
     if name in metadata:
         raise ValueError(f"Knowledge base '{name}' already exists")
     
-    print(1)
     storage_dir = f"data/kb/bases/{name}"
     os.makedirs(storage_dir, exist_ok=True)
 
     with open(f"{storage_dir}/init.txt", "w") as f:
         f.write("!!")
 
-    print(2)
     kb = HierarchicalKnowledgeBase(storage_dir)
-    print(3)
     await kb.create_index(storage_dir)
-    print(4)
     _kb_instances[name] = kb
-    print(5)
     metadata[name] = {
         "name": name,
         "description": description,
         "created_at": str(datetime.datetime.now()),
         "storage_dir": storage_dir
     }
-    print(6)
     save_kb_metadata(metadata)
-    print(7)
     return metadata[name]
 
 @service()
@@ -128,7 +121,7 @@ async def query_kb(kb_name: str, match_text: str, context=None):
 
     Example:
 
-    { "query_kb": { "name": "general", "match_text": "The capital of France is ..." } }
+    { "query_kb": { "kb_name": "general", "match_text": "The capital of France is ..." } }
     """
     kb = await get_kb_instance(kb_name)
     results = await kb.get_relevant_context(
