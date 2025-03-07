@@ -108,19 +108,35 @@ async def add_to_kb(name: str, file_path: str):
     kb = await get_kb_instance(name)
     await kb.add_document(file_path)
 
+
 @command()
-async def query_kb(name: str, query: str, context=None):
+async def query_kb(kb_name: str, match_text: str, context=None):
     """Query a specific knowledge base
     
+    Params:
+
+        kb - String.            The name of the knowledgebase to search
+
+        match_text - String.    A snippet of text to try to match in the KB.
+                                This will be converted to an embedding and 
+                                the vector index will be searched for similar meaning
+                                blocks of text.
+
+    Note: The match_text should not necessarily just be a simple phrase or question.
+          If possible, try to construct a snippet that might have a similar semantic embedding
+          to the real information from the KB you are looking for.
+
     Example:
-    { "query_kb": { "name": "general", "query": "What is the capital of France?" } }
+
+    { "query_kb": { "name": "general", "match_text": "The capital of France is ..." } }
     """
-    kb = await get_kb_instance(name)
+    kb = await get_kb_instance(kb_name)
     results = await kb.get_relevant_context(
-        query,
-        similarity_top_k=5
+        match_text,
+        similarity_top_k=15
     )
     return results
+
 
 @command()
 async def add_to_kb_cmd(name: str, file_path: str, context=None):
