@@ -662,6 +662,11 @@ class HierarchicalKnowledgeBase:
             else:
                 regular_results.append(result)
         
+        # If we're not including verbatim documents, clear the verbatim_results list
+        if not include_verbatim:
+            verbatim_results = []
+            print("Excluding verbatim documents as requested")
+        
         # Format for detailed view
         context = "### [Retrieved Knowledge Base Results]\n"
         context += "Note: Results are ranked by relevance. 'Essential Documents' are always included.\n\n"
