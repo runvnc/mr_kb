@@ -176,7 +176,6 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
     if not allowed_kbs:
         return data
     debug_box(f"Allowed KBs: {allowed_kbs}")
-    debug_box(f"Allowed KBs: {allowed_kbs}")
 
     if not data.get('message'):
         return data
@@ -193,7 +192,6 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
     try:
         # For now, query all KBs and combine results
         metadata = load_kb_metadata()
-        verbatim_results = []
         all_results = []
         
         # Only query KBs that the agent is allowed to access
@@ -212,58 +210,17 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
                     final_top_k=15,
                     include_verbatim=False  # Don't include verbatim docs in regular results
                 )
+                # get_relevant_context returns a tuple or just a string - handle both cases
+                if isinstance(context_data, tuple):
+                    context_data = context_data[0]  # Extract the context string from the tuple
+                elif not isinstance(context_data, str):
+                    context_data = str(context_data)
                 if context_data:
                     all_results.append(f"From KB '{kb_name}':\n{context_data}")
-                
-                # Get verbatim documents separately
-                verbatim_docs = kb._get_verbatim_documents()
-                if verbatim_docs:
-                    # Format verbatim documents
-                    verbatim_text = "### [Essential Knowledge Base Documents]\n\n"
-                    verbatim_text += "=" * 80 + "\n\n"  # Distinctive separator
-                    
-                    for text, metadata, _, chunk_size in verbatim_docs:
-                        # Format metadata header
-                        verbatim_text += f"[ESSENTIAL: {metadata.get('file_name', 'Document')} | "
-                        verbatim_text += f"Path: {metadata.get('file_path', 'Unknown')}]\n"
-                        verbatim_text += f"{text}\n"
-                        verbatim_text += "=" * 80 + "\n\n"  # Distinctive separator
-                    
-                    verbatim_results.append(f"From KB '{kb_name}' (Verbatim):\n{verbatim_text}")
             except Exception as e:
                 print(f"Error querying KB '{kb_name}': {e}")
                 continue
 
-        # Handle verbatim documents - put in system message
-        if verbatim_results:
-            combined_verbatim = "\n\n".join(verbatim_results)
-            # Add KB delimiters
-            delimited_verbatim = f"{KB_START_DELIMITER}\n{combined_verbatim}\n{KB_END_DELIMITER}"
-            
-            # Add to system message
-            if 'system' not in data:
-                data['system'] = delimited_verbatim
-            elif isinstance(data['system'], str):
-                # Append to existing system message
-                data['system'] = f"{data['system']}\n\n{delimited_verbatim}"
-            elif isinstance(data['system'], dict) and 'content' in data['system']:
-                # Handle case where system is a dict with content field
-                data['system']['content'] = f"{data['system']['content']}\n\n{delimited_verbatim}"
-            elif isinstance(data['system'], list):
-                # Handle case where system is a list of content objects
-                has_text = False
-                for item in data['system']:
-                    if isinstance(item, dict) and item.get('type') == 'text':
-                        item['text'] = f"{item['text']}\n\n{delimited_verbatim}"
-                        has_text = True
-                        break
-                if not has_text:
-                    # If no text item found, add a new one
-                    data['system'].append({"type": "text", "text": delimited_verbatim})
-            else:
-                # Default case - create new system message
-                data['system'] = delimited_verbatim
-        
         # Handle regular search results - keep in user message as before
         if all_results:
             combined_results = "\n\n".join(all_results)
@@ -289,10 +246,92 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
 async def filter_kb_messages(data: dict, context=None) -> dict:
     """Filter KB content from messages, preserving only the two most recent non-assistant messages with KB content."""
     try:
-        debug_box("Top of file_messages kb")
-        print(data)
+        debug_box("Top of filter_kb_messages")
+        
         # Clean up KB content from previous messages if they exist
         if 'messages' in data and isinstance(data['messages'], list):
+            # First, add verbatim documents to the system message (first message)
+            try:
+                # Get the agent name from the context
+                agent_name = context.agent_name
+                if not agent_name:
+                    return data
+                
+                # Load agent KB settings
+                settings_dir = "data/kb/agent_settings"
+                settings_file = f"{settings_dir}/{agent_name}.json"
+                allowed_kbs = []
+                
+                if os.path.exists(settings_file):
+                    with open(settings_file, 'r') as f:
+                        settings = json.load(f)
+                        allowed_kbs = settings.get('kb_access', [])
+                
+                # Only proceed if there are allowed KBs
+                if allowed_kbs:
+                    # Get message text for the last user message
+                    user_message = None
+                    for msg in reversed(data['messages']):
+                        if msg['role'] == 'user':
+                            user_message = msg
+                            break
+                    
+                    if user_message:
+                        # Extract text from the user message
+                        if isinstance(user_message.get('content'), str):
+                            query_text = user_message['content']
+                        elif isinstance(user_message.get('content'), list):
+                            text_parts = [p['text'] for p in user_message['content'] if p.get('type') == 'text']
+                            query_text = ' '.join(text_parts)
+                        else:
+                            query_text = ""
+                        
+                        if query_text:
+                            # Query each KB for verbatim documents
+                            metadata = load_kb_metadata()
+                            verbatim_results = []
+                            
+                            kb_names_to_query = [kb_name for kb_name in allowed_kbs if kb_name in metadata]
+                            
+                            for kb_name in kb_names_to_query:
+                                try:
+                                    kb = await get_kb_instance(kb_name)
+                                    # Get verbatim documents separately
+                                    verbatim_docs = kb._get_verbatim_documents()
+                                    if verbatim_docs:
+                                        # Format verbatim documents
+                                        verbatim_text = "### [Essential Knowledge Base Documents]\n\n"
+                                        verbatim_text += "=" * 80 + "\n\n"  # Distinctive separator
+                                        
+                                        for text, metadata, _, chunk_size in verbatim_docs:
+                                            # Format metadata header
+                                            verbatim_text += f"[ESSENTIAL: {metadata.get('file_name', 'Document')} | "
+                                            verbatim_text += f"Path: {metadata.get('file_path', 'Unknown')}]\n"
+                                            verbatim_text += f"{text}\n"
+                                            verbatim_text += "=" * 80 + "\n\n"  # Distinctive separator
+                                        
+                                        verbatim_results.append(f"From KB '{kb_name}' (Verbatim):\n{verbatim_text}")
+                                except Exception as e:
+                                    print(f"Error getting verbatim docs from KB '{kb_name}': {e}")
+                                    continue
+                            
+                            # If we have verbatim results, add them to the system message (first message)
+                            if verbatim_results and len(data['messages']) > 0:
+                                combined_verbatim = "\n\n".join(verbatim_results)
+                                # Add KB delimiters
+                                # Use different delimiters to ensure this content is never removed
+                                # We don't want the verbatim docs to be affected by the clean_chat_messages function
+                                delimited_verbatim = f"<!-- VERBATIM_DOCS_START -->\n{combined_verbatim}\n<!-- VERBATIM_DOCS_END -->"
+                                
+                                # Add to the system message (first message)
+                                if data['messages'][0]['role'] == 'system':
+                                    if isinstance(data['messages'][0]['content'], str):
+                                        data['messages'][0]['content'] += f"\n\n{delimited_verbatim}"
+                                    # Could handle other content types if needed here
+            except Exception as e:
+                trace = traceback.format_exc()
+                print(f"Error adding verbatim docs to system message: {str(e)}\n {trace}")
+            
             # Clean messages to retain KB content only in the two most recent non-assistant messages
             data['messages'] = clean_chat_messages(data['messages'])
         else:
