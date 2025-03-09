@@ -629,7 +629,7 @@ class HierarchicalKnowledgeBase:
                             similarity_top_k: int = 15,
                             final_top_k: int = 6,
                             min_score: float = 0.65,
-                            include_verbatim: bool = True) -> str:
+                            include_verbatim: bool = False) -> str:
         """Get formatted context from relevant nodes.
         
         Args:
