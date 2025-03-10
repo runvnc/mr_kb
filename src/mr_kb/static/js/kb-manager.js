@@ -99,7 +99,9 @@ class KnowledgeBaseManager extends BaseEl {
     }
 
     .doc-list th:first-child, .doc-list td:first-child {
-      max-width: 300px;
+      max-width: none;
+      white-space: normal;
+      word-break: break-word;
     }
 
     .doc-list th {
@@ -400,8 +402,6 @@ class KnowledgeBaseManager extends BaseEl {
               <thead>
                 <tr>
                   <th>Document</th>
-                  <th>Type</th>
-                  <th>Added</th>
                   <th>Size</th>
                   <th>Verbatim</th>
                   <th>Actions</th>
@@ -411,8 +411,6 @@ class KnowledgeBaseManager extends BaseEl {
                 ${this.documents.map(doc => html`
                   <tr>
                     <td>${doc.file_name}</td>
-                    <td>${doc.file_type}</td>
-                    <td>${new Date(doc.creation_date).toLocaleString()}</td>
                     <td>${doc.size}</td>
                     <td>
                       <input type="checkbox" 
