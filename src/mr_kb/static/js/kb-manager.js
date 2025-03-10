@@ -82,6 +82,9 @@ class KnowledgeBaseManager extends BaseEl {
       width: 100%;
       border-collapse: collapse;
       margin-top: 1rem;
+      table-layout: fixed;
+      overflow-x: auto;
+      display: block;
     }
 
     .doc-list th,
@@ -89,6 +92,14 @@ class KnowledgeBaseManager extends BaseEl {
       padding: 0.75rem;
       text-align: left;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 200px;
+    }
+
+    .doc-list th:first-child, .doc-list td:first-child {
+      max-width: 300px;
     }
 
     .doc-list th {
