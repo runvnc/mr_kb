@@ -598,7 +598,7 @@ class KnowledgeBaseManager extends BaseEl {
 
             <!-- Help text for verbatim feature -->
             <div class="help-text">
-              <p><strong>Verbatim:</strong> When checked, the document will always be included in full in search results, regardless of query relevance.</p>
+              <p><strong>Verbatim:</strong> When checked, the document will always be included in full in the system message for the agent.</p>
             </div>
 
             <!-- Documents List -->
