@@ -9,6 +9,7 @@ import datetime
 from .chat_utils import KB_START_DELIMITER, KB_END_DELIMITER, clean_chat_messages
 from lib.utils.debug import debug_box
 
+import hashlib
 # Global KB instances cache
 _kb_instances = {}
 
@@ -101,6 +102,43 @@ async def add_to_kb(name: str, file_path: str):
     kb = await get_kb_instance(name)
     await kb.add_document(file_path)
 
+@service()
+async def add_url_to_kb(name: str, url: str, always_include_verbatim: bool = True):
+    """Add content from a URL to a knowledge base
+    
+    Args:
+        name: Name of the knowledge base
+        url: URL to fetch and add
+        always_include_verbatim: Whether to include the URL content verbatim
+        
+    Returns:
+        Dict with URL document information
+    """
+    kb = await get_kb_instance(name)
+    return await kb.add_url_document(url, always_include_verbatim=always_include_verbatim)
+
+@service()
+async def refresh_url_in_kb(name: str, url_or_hash: str):
+    """Refresh content for a URL in a knowledge base
+    
+    Args:
+        name: Name of the knowledge base
+        url_or_hash: URL or hash of the URL to refresh
+        
+    Returns:
+        Dict with updated URL document information
+    """
+    kb = await get_kb_instance(name)
+    
+    # Determine if input is a URL or hash
+    if url_or_hash.startswith(('http://', 'https://')):
+        # Create hash from URL
+        url_hash = hashlib.md5(url_or_hash.encode()).hexdigest()
+    else:
+        # Assume input is already a hash
+        url_hash = url_or_hash
+        
+    return await kb.refresh_url_document(url_hash)
 
 @command()
 async def query_kb(kb_name: str, match_text: str, context=None):
@@ -143,6 +181,26 @@ async def add_to_kb_cmd(name: str, file_path: str, context=None):
     kb = await get_kb_instance(name)
     await kb.add_document(file_path)
     return f"Added {file_path} to knowledge base '{name}'"
+
+@command()
+async def add_url_to_kb_cmd(name: str, url: str, context=None):
+    """Add content from a URL to a knowledge base
+    
+    Args:
+        name: The name of the knowledge base to add to
+        url: The URL to fetch and extract content from
+        
+    Returns:
+        str: Confirmation message with URL added
+        
+    Example:
+        { "add_url_to_kb_cmd": { "name": "general", "url": "https://www.example.com/article" } }
+    """
+    try:
+        result = await add_url_to_kb(name, url)
+        return f"Added content from {url} to knowledge base '{name}'"
+    except Exception as e:
+        return f"Error adding URL: {str(e)}"
 
 @pipe(name='pre_process_msg', priority=10)
 async def enrich_with_kb(data: dict, context=None) -> dict:

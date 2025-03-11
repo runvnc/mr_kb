@@ -23,6 +23,7 @@ from llama_index.core.instrumentation.events.retrieval import RetrievalStartEven
 from llama_index.core.instrumentation.event_handlers import BaseEventHandler
 import traceback
 
+import hashlib
 
 dispatcher = instrument.get_dispatcher(__name__)
 class RetrievalEventHandler(BaseEventHandler):
@@ -90,7 +91,12 @@ class HierarchicalKnowledgeBase:
         # Add verbatim document tracking
         self.verbatim_docs_dir = os.path.join(persist_dir, "verbatim_docs")
         self.verbatim_docs_index_path = os.path.join(persist_dir, "verbatim_docs_index.json")
+        
+        # Add URL document tracking
+        self.url_docs_dir = os.path.join(persist_dir, "url_docs")
+        self.url_docs_index_path = os.path.join(persist_dir, "url_docs_index.json")
         self.verbatim_docs = {}
+        self.url_docs = {}
         
         # Create verbatim docs directory if it doesn't exist
         os.makedirs(self.verbatim_docs_dir, exist_ok=True)
@@ -102,6 +108,17 @@ class HierarchicalKnowledgeBase:
                     self.verbatim_docs = json.load(f)
             except Exception as e:
                 logger.error(f"Failed to load verbatim docs index: {str(e)}")
+        
+        # Create URL docs directory if it doesn't exist
+        os.makedirs(self.url_docs_dir, exist_ok=True)
+        
+        # Load URL docs index if it exists
+        if os.path.exists(self.url_docs_index_path):
+            try:
+                with open(self.url_docs_index_path, 'r') as f:
+                    self.url_docs = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load URL docs index: {str(e)}")
         
         # Configure embedding model        # Configure embedding model
         if embedding_model is None or embedding_model.lower() == 'openai':
@@ -361,6 +378,184 @@ class HierarchicalKnowledgeBase:
             logger.error(f"Failed to add verbatim document: {str(e)}")
             raise DocumentProcessingError(f"Verbatim document addition failed: {str(e)}") from e
 
+    async def add_url_document(self, url: str, progress_callback=None, always_include_verbatim=True):
+        """Add content from a URL to the knowledge base.
+        
+        Args:
+            url: The URL to fetch content from
+            progress_callback: Optional callback for progress updates
+            always_include_verbatim: If True, include as verbatim document
+            
+        Returns:
+            Dict with URL document information
+        """
+        try:
+            if not self.index:
+                raise ValueError("Index not initialized. Call create_index first.")
+                
+            from .url_fetcher import fetch_content_from_url
+            
+            # Update progress callback
+            if progress_callback:
+                progress_callback(0.1)  # 10% progress for starting
+            
+            # Create a hash of the URL for unique identification
+            url_hash = hashlib.md5(url.encode()).hexdigest()
+            
+            # Fetch content from URL
+            content = await fetch_content_from_url(url)
+            
+            if progress_callback:
+                progress_callback(0.3)  # 30% progress after fetching
+            
+            if not content:
+                raise ValueError(f"No content could be extracted from URL: {url}")
+                
+            # Create a temporary file with the content
+            url_filename = f"url_{url_hash}.txt"
+            url_path = os.path.join(self.url_docs_dir, url_filename)
+            
+            with open(url_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+                
+            if progress_callback:
+                progress_callback(0.5)  # 50% progress after saving
+                
+            # Save metadata about the URL document
+            self.url_docs[url_hash] = {
+                "url": url,
+                "added_at": datetime.datetime.now().isoformat(),
+                "last_refreshed": datetime.datetime.now().isoformat(),
+                "file_path": url_path,
+                "size": len(content)
+            }
+            
+            # Save the updated URL docs index
+            with open(self.url_docs_index_path, 'w') as f:
+                json.dump(self.url_docs, f, indent=2)
+                
+            # Add the document to the index
+            await self.add_document(url_path, progress_callback=progress_callback, 
+                                  always_include_verbatim=always_include_verbatim)
+            
+            if progress_callback:
+                progress_callback(1.0)  # 100% progress for completion
+                
+            logger.info(f"Added URL document: {url}")
+            return self.url_docs[url_hash]
+            
+        except Exception as e:
+            logger.error(f"Failed to add URL document: {str(e)}")
+            raise DocumentProcessingError(f"URL document addition failed: {str(e)}") from e
+            
+    async def refresh_url_document(self, url_hash, progress_callback=None):
+        """Refresh content for a URL document.
+        
+        Args:
+            url_hash: The hash of the URL to refresh
+            progress_callback: Optional callback for progress updates
+            
+        Returns:
+            Dict with updated URL document information
+        """
+        try:
+            if url_hash not in self.url_docs:
+                raise ValueError(f"URL with hash {url_hash} not found in URL documents")
+                
+            url_info = self.url_docs[url_hash]
+            url = url_info["url"]
+            file_path = url_info["file_path"]
+            
+            # Update progress callback
+            if progress_callback:
+                progress_callback(0.1)  # 10% progress for starting
+                
+            from .url_fetcher import fetch_content_from_url
+            
+            # Fetch fresh content
+            content = await fetch_content_from_url(url)
+            
+            if progress_callback:
+                progress_callback(0.3)  # 30% progress after fetching
+                
+            if not content:
+                raise ValueError(f"No content could be extracted from URL: {url}")
+                
+            # First remove the document from the index
+            await self.remove_document(file_path)
+            
+            if progress_callback:
+                progress_callback(0.5)  # 50% progress after removing
+                
+            # Update the file with new content
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+                
+            # Update metadata
+            self.url_docs[url_hash]["last_refreshed"] = datetime.datetime.now().isoformat()
+            self.url_docs[url_hash]["size"] = len(content)
+            
+            # Save the updated URL docs index
+            with open(self.url_docs_index_path, 'w') as f:
+                json.dump(self.url_docs, f, indent=2)
+                
+            # Add the document back to the index
+            await self.add_document(file_path, progress_callback=progress_callback, 
+                                  always_include_verbatim=True)
+            
+            if progress_callback:
+                progress_callback(1.0)  # 100% progress for completion
+                
+            logger.info(f"Refreshed URL document: {url}")
+            return self.url_docs[url_hash]
+            
+        except Exception as e:
+            logger.error(f"Failed to refresh URL document: {str(e)}")
+            raise DocumentProcessingError(f"URL document refresh failed: {str(e)}") from e
+
+    async def remove_url_document(self, url_or_hash: str):
+        """Remove a URL document.
+        
+        Args:
+            url_or_hash: The URL or hash of the URL to remove
+        """
+        try:
+            # Determine if input is a URL or hash
+            if url_or_hash.startswith(('http://', 'https://')):
+                # Create hash from URL
+                url_hash = hashlib.md5(url_or_hash.encode()).hexdigest()
+            else:
+                # Assume input is already a hash
+                url_hash = url_or_hash
+                
+            # Check if URL exists in our index
+            if url_hash not in self.url_docs:
+                logger.warning(f"URL document not found with hash: {url_hash}")
+                return
+                
+            # Get file path from URL info
+            file_path = self.url_docs[url_hash]["file_path"]
+            
+            # Remove document from the index
+            await self.remove_document(file_path)
+            
+            # Remove the URL document file
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                
+            # Remove from the URL docs index
+            del self.url_docs[url_hash]
+            
+            # Save the updated URL docs index
+            with open(self.url_docs_index_path, 'w') as f:
+                json.dump(self.url_docs, f, indent=2)
+                
+            logger.info(f"Removed URL document with hash: {url_hash}")
+            
+        except Exception as e:
+            logger.error(f"Failed to remove URL document: {str(e)}")
+            raise DocumentProcessingError(f"URL document removal failed: {str(e)}") from e
+
     async def remove_document(self, file_path: str):
         """Remove a document and all its hierarchical nodes from the index."""
         if not self.index:
@@ -454,6 +649,28 @@ class HierarchicalKnowledgeBase:
         # convert from dict to list
         as_list = []
         for k, v in docs_info.items():
+            # Check if this is a URL document
+            url_hash = None
+            is_url = False
+            url_info = {}
+            
+            # Look through url_docs to find if this file is from a URL
+            for hash_id, info in self.url_docs.items():
+                if info.get("file_path") == k:
+                    url_hash = hash_id
+                    is_url = True
+                    url_info = info
+                    break
+                    
+            # Add URL information if this document is from a URL
+            if is_url:
+                v['is_url'] = True
+                v['url'] = url_info.get('url', '')
+                v['url_hash'] = url_hash
+                v['last_refreshed'] = url_info.get('last_refreshed', '')
+            else:
+                v['is_url'] = False
+                
             as_list.append(v)
         return as_list
 

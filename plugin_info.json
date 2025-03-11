@@ -7,11 +7,14 @@
     "add_to_kb",
     "create_kb",
     "list_kbs",
-    "delete_kb"
+    "delete_kb",
+    "add_url_to_kb",
+    "refresh_url_in_kb"
   ],
   "commands": [
     "query_kb",
-    "add_to_kb_cmd"
+    "add_to_kb_cmd",
+    "add_url_to_kb_cmd"
   ],
   "pipelines": {
     "pre_process_msg": ["enrich_with_kb"]

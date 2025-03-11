@@ -10,7 +10,8 @@ class KnowledgeBaseManager extends BaseEl {
     documents: { type: Array },
     selectedKb: { type: String },
     loading: { type: Boolean },
-    uploadStatus: { type: String }
+    uploadStatus: { type: String },
+    urlStatus: { type: String }
   }
 
   static styles = css`
@@ -147,6 +148,14 @@ class KnowledgeBaseManager extends BaseEl {
       background: #503a3a;
     }
 
+    button.refresh {
+      background: #2a402a;
+    }
+
+    button.refresh:hover {
+      background: #3a503a;
+    }
+
     .status {
       margin-top: 10px;
       padding: 10px;
@@ -167,13 +176,40 @@ class KnowledgeBaseManager extends BaseEl {
       margin-bottom: 20px;
     }
 
-    .create-kb input {
+    .create-kb input, .url-form input {
       background: rgba(255, 255, 255, 0.1);
       border: 1px solid rgba(255, 255, 255, 0.2);
       color: white;
       padding: 8px;
       border-radius: 4px;
       margin-right: 10px;
+    }
+
+    .url-form {
+      margin: 20px 0;
+      padding: 15px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 4px;
+    }
+
+    .url-form input[type="url"] {
+      width: 60%;
+    }
+
+    .url-source {
+      color: #4a9eff;
+    }
+
+    .url-source a {
+      color: #4a9eff;
+      text-decoration: underline;
+    }
+
+    .url-source small {
+      display: block;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 0.8em;
+      margin-top: 4px;
     }
   `;
 
@@ -184,6 +220,7 @@ class KnowledgeBaseManager extends BaseEl {
     this.selectedKb = null;
     this.loading = false;
     this.uploadStatus = '';
+    this.urlStatus = '';
     this.fetchKBs();
   }
 
@@ -289,6 +326,125 @@ class KnowledgeBaseManager extends BaseEl {
     this.uploadStatus = e.detail.message || 'Upload failed';
   }
 
+  async addUrl(e) {
+    e.preventDefault();
+    const urlInput = this.shadowRoot.querySelector('#url-input');
+    const url = urlInput.value.trim();
+    const verbatimCheckbox = this.shadowRoot.querySelector('#url-verbatim');
+    const verbatim = verbatimCheckbox ? verbatimCheckbox.checked : true;
+
+    if (!url) return;
+
+    this.urlStatus = 'Adding URL, please wait...';
+
+    try {
+      const response = await fetch(`/api/kb/${this.selectedKb}/url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, verbatim })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        const taskId = result.task_id;
+        this.pollUrlTaskStatus(taskId, urlInput);
+      } else {
+        this.urlStatus = `Error: ${result.message || 'Failed to add URL'}`;
+      }
+    } catch (error) {
+      console.error('Error adding URL:', error);
+      this.urlStatus = `Error: ${error.message || 'Failed to add URL'}`;
+    }
+  }
+
+  async pollUrlTaskStatus(taskId, urlInput) {
+    try {
+      const response = await fetch(`/api/kb/${this.selectedKb}/task/${taskId}`);
+      const result = await response.json();
+
+      if (result.success) {
+        const status = result.status;
+        const progress = result.progress;
+
+        if (status === 'complete') {
+          this.urlStatus = `Successfully added URL: ${result.url || 'URL'}`;
+          urlInput.value = '';
+          this.fetchDocuments();
+          return;
+        } else if (status === 'error') {
+          this.urlStatus = `Error: ${result.message || 'Failed to add URL'}`;
+          return;
+        } else {
+          this.urlStatus = `Adding URL... ${progress}%`;
+          // Continue polling
+          setTimeout(() => this.pollUrlTaskStatus(taskId, urlInput), 1000);
+        }
+      } else {
+        this.urlStatus = `Error: ${result.message || 'Failed to check status'}`;
+      }
+    } catch (error) {
+      console.error('Error polling task status:', error);
+      this.urlStatus = `Error: ${error.message || 'Failed to check status'}`;
+    }
+  }
+
+  async refreshUrl(urlHash, url) {
+    if (!confirm(`Are you sure you want to refresh the content from ${url}?`)) return;
+
+    this.urlStatus = 'Refreshing URL content, please wait...';
+
+    try {
+      const response = await fetch(`/api/kb/${this.selectedKb}/url/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url_or_hash: urlHash || url })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        const taskId = result.task_id;
+        this.pollRefreshTaskStatus(taskId);
+      } else {
+        this.urlStatus = `Error: ${result.message || 'Failed to refresh URL'}`;
+      }
+    } catch (error) {
+      console.error('Error refreshing URL:', error);
+      this.urlStatus = `Error: ${error.message || 'Failed to refresh URL'}`;
+    }
+  }
+
+  async pollRefreshTaskStatus(taskId) {
+    try {
+      const response = await fetch(`/api/kb/${this.selectedKb}/task/${taskId}`);
+      const result = await response.json();
+
+      if (result.success) {
+        const status = result.status;
+        const progress = result.progress;
+
+        if (status === 'complete') {
+          this.urlStatus = `Successfully refreshed URL content`;
+          this.fetchDocuments();
+          return;
+        } else if (status === 'error') {
+          this.urlStatus = `Error: ${result.message || 'Failed to refresh URL content'}`;
+          return;
+        } else {
+          this.urlStatus = `Refreshing URL content... ${progress}%`;
+          // Continue polling
+          setTimeout(() => this.pollRefreshTaskStatus(taskId), 1000);
+        }
+      } else {
+        this.urlStatus = `Error: ${result.message || 'Failed to check status'}`;
+      }
+    } catch (error) {
+      console.error('Error polling task status:', error);
+      this.urlStatus = `Error: ${error.message || 'Failed to check status'}`;
+    }
+  }
+
   async deleteDocument(file_path) {
     if (!confirm('Are you sure you want to delete this document?')) return;
     
@@ -305,6 +461,27 @@ class KnowledgeBaseManager extends BaseEl {
       }
     } catch (error) {
       console.error('Error deleting document:', error);
+    }
+  }
+
+  async deleteUrlDocument(url, urlHash) {
+    if (!confirm(`Are you sure you want to delete this URL document?`)) return;
+    
+    try {
+      const response = await fetch(`/api/kb/${this.selectedKb}/url`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url_or_hash: urlHash || url })
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        await this.fetchDocuments();
+      } else {
+        throw new Error(result.message);
+      }
+    } catch (error) {
+      console.error('Error deleting URL document:', error);
     }
   }
 
@@ -345,6 +522,11 @@ class KnowledgeBaseManager extends BaseEl {
     }
   }
 
+  formatDate(dateString) {
+    if (!dateString) return 'Unknown';
+    return new Date(dateString).toLocaleString();
+  }
+
   render() {
     return html`
       <div class="kb-manager">
@@ -378,6 +560,24 @@ class KnowledgeBaseManager extends BaseEl {
           </div>
 
           ${this.selectedKb ? html`
+            <!-- URL Input Form -->
+            <div class="url-form">
+              <h3>Add Content from URL</h3>
+              <form @submit=${this.addUrl}>
+                <input type="url" id="url-input" placeholder="https://example.com/page" required>
+                <label>
+                  <input type="checkbox" id="url-verbatim" checked>
+                  Add as verbatim
+                </label>
+                <button type="submit">Add URL</button>
+              </form>
+              ${this.urlStatus ? html`
+                <div class="status ${this.urlStatus.includes('Error') ? 'error' : 'success'}">
+                  ${this.urlStatus}
+                </div>
+              ` : ''}
+            </div>
+
             <!-- File Uploader Component -->
             <file-uploader 
               .kbName=${this.selectedKb}
@@ -403,6 +603,7 @@ class KnowledgeBaseManager extends BaseEl {
                 <tr>
                   <th>Document</th>
                   <th>Size</th>
+                  <th>Source</th>
                   <th>Verbatim</th>
                   <th>Actions</th>
                 </tr>
@@ -413,6 +614,14 @@ class KnowledgeBaseManager extends BaseEl {
                     <td>${doc.file_name}</td>
                     <td>${doc.size}</td>
                     <td>
+                      ${doc.is_url ? html`
+                        <span class="url-source">
+                          <a href="${doc.url}" target="_blank">${doc.url}</a>
+                          <br><small>Last updated: ${this.formatDate(doc.last_refreshed)}</small>
+                        </span>
+                      ` : html`Local File`}
+                    </td>
+                    <td>
                       <input type="checkbox" 
                              ?checked=${doc.is_verbatim} 
                              @change=${(e) => this.toggleVerbatim(doc.file_path, e.target.checked, e)}
@@ -420,10 +629,21 @@ class KnowledgeBaseManager extends BaseEl {
                              title="When checked, this document will always be included in full in search results">
                     </td>
                     <td>
-                      <button class="delete"
-                              @click=${() => this.deleteDocument(doc.file_path)}>
-                        Delete
-                      </button>
+                      <div class="actions">
+                        ${doc.is_url ? html`
+                          <button class="refresh"
+                                  @click=${() => this.refreshUrl(doc.url_hash, doc.url)}
+                                  title="Refresh content from URL">
+                            ⟳ Refresh
+                          </button>
+                        ` : ''}
+                        <button class="delete"
+                                @click=${() => doc.is_url ? 
+                                        this.deleteUrlDocument(doc.url, doc.url_hash) : 
+                                        this.deleteDocument(doc.file_path)}>
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 `)}

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse
 from lib.templates import render
 from .kb import HierarchicalKnowledgeBase
-from .mod import get_kb_instance, create_kb, list_kbs, delete_kb, add_to_kb
+from .mod import get_kb_instance, create_kb, list_kbs, delete_kb, add_to_kb, add_url_to_kb, refresh_url_in_kb
 import os
 import tempfile
 import uuid
@@ -155,11 +155,161 @@ async def process_document_with_progress(name, file_path, task_id):
         if os.path.exists(file_path):
             os.unlink(file_path)
 
+async def process_url_with_progress(name, url, task_id, always_include_verbatim=True):
+    """Process URL with progress tracking"""
+    try:
+        # Update task status to indicate processing has started
+        processing_tasks[task_id]["status"] = "processing"
+        processing_tasks[task_id]["progress"] = 0
+        
+        # Define progress callback
+        def progress_callback(progress):
+            processing_tasks[task_id]["progress"] = int(progress * 100)
+        
+        # Add URL to KB with progress tracking
+        result = await add_url_to_kb(name, url, always_include_verbatim)
+        
+        # Update task status to indicate completion
+        processing_tasks[task_id]["status"] = "complete"
+        processing_tasks[task_id]["progress"] = 100
+        
+        # Store the URL hash for future reference
+        if result and isinstance(result, dict):
+            url_hash = None
+            for k, v in result.items():
+                if k == "url_hash" or (k == "url" and url == v):
+                    url_hash = k
+                    break
+            if url_hash:
+                processing_tasks[task_id]["url_hash"] = url_hash
+        
+        # Schedule task cleanup after some time
+        asyncio.create_task(cleanup_task(task_id, 300))  # Clean up after 5 minutes
+        
+    except Exception as e:
+        # Print detailed error information
+        import traceback
+        print(f"Error in process_url_with_progress: {str(e)}")
+        print(traceback.format_exc())
+        
+        # Update task status to indicate error
+        processing_tasks[task_id]["status"] = "error"
+        processing_tasks[task_id]["message"] = str(e)
+
+async def refresh_url_with_progress(name, url_or_hash, task_id):
+    """Refresh URL with progress tracking"""
+    try:
+        # Update task status to indicate processing has started
+        processing_tasks[task_id]["status"] = "processing"
+        processing_tasks[task_id]["progress"] = 0
+        
+        # Define progress callback
+        def progress_callback(progress):
+            processing_tasks[task_id]["progress"] = int(progress * 100)
+        
+        # Refresh URL in KB with progress tracking
+        result = await refresh_url_in_kb(name, url_or_hash)
+        
+        # Update task status to indicate completion
+        processing_tasks[task_id]["status"] = "complete"
+        processing_tasks[task_id]["progress"] = 100
+        
+        # Schedule task cleanup after some time
+        asyncio.create_task(cleanup_task(task_id, 300))  # Clean up after 5 minutes
+        
+    except Exception as e:
+        # Print detailed error information
+        import traceback
+        print(f"Error in refresh_url_with_progress: {str(e)}")
+        print(traceback.format_exc())
+        
+        # Update task status to indicate error
+        processing_tasks[task_id]["status"] = "error"
+        processing_tasks[task_id]["message"] = str(e)
+
 async def cleanup_task(task_id, delay_seconds):
     """Clean up task after delay"""
     await asyncio.sleep(delay_seconds)
     if task_id in processing_tasks:
         del processing_tasks[task_id]
+
+@router.post("/api/kb/{name}/url")
+async def add_url_to_knowledge_base(name: str, request: Request):
+    """Add a URL to a knowledge base"""
+    try:
+        data = await request.json()
+        url = data.get('url')
+        always_include_verbatim = data.get('verbatim', True)
+        
+        if not url:
+            return JSONResponse({
+                "success": False, 
+                "message": "URL is required"
+            }, status_code=400)
+            
+        # Create a task ID for tracking progress
+        task_id = str(uuid.uuid4())
+        
+        # Store task info
+        processing_tasks[task_id] = {
+            "status": "queued",
+            "progress": 0,
+            "url": url
+        }
+        
+        # Start background task for processing
+        asyncio.create_task(process_url_with_progress(
+            name, 
+            url, 
+            task_id, 
+            always_include_verbatim
+        ))
+        
+        return JSONResponse({
+            "success": True, 
+            "task_id": task_id
+        })
+    except Exception as e:
+        return JSONResponse({
+            "success": False, 
+            "message": f"Error adding URL: {str(e)}"
+        }, status_code=500)
+
+@router.post("/api/kb/{name}/url/refresh")
+async def refresh_url_in_knowledge_base(name: str, request: Request):
+    """Refresh content for a URL in a knowledge base"""
+    try:
+        data = await request.json()
+        url_or_hash = data.get('url_or_hash')
+        
+        if not url_or_hash:
+            return JSONResponse({
+                "success": False, 
+                "message": "URL or hash is required"
+            }, status_code=400)
+            
+        # Create a task ID for tracking progress
+        task_id = str(uuid.uuid4())
+        
+        # Store task info
+        processing_tasks[task_id] = {
+            "status": "queued",
+            "progress": 0,
+            "url_or_hash": url_or_hash
+        }
+        
+        # Start background task for refreshing
+        asyncio.create_task(refresh_url_with_progress(name, url_or_hash, task_id))
+        
+        return JSONResponse({
+            "success": True, 
+            "task_id": task_id
+        })
+    except Exception as e:
+        return JSONResponse({
+            "success": False, 
+            "message": f"Error refreshing URL: {str(e)}"
+        }, status_code=500)
 
 @router.post("/api/kb/{name}/upload")
 async def upload_document(name: str, file: UploadFile = File(...), request: Request = None):
@@ -253,7 +403,9 @@ async def get_task_status(name: str, task_id: str, request: Request = None):
         "success": True,
         "status": processing_tasks[task_id]["status"],
         "progress": processing_tasks[task_id]["progress"],
-        "file_name": processing_tasks[task_id]["file_name"],
+        "file_name": processing_tasks[task_id].get("file_name", ""),
+        "url": processing_tasks[task_id].get("url", ""),
+        "url_hash": processing_tasks[task_id].get("url_hash", ""),
         "permanent_path": processing_tasks[task_id].get("permanent_path", ""),
         "message": processing_tasks[task_id].get("message", "")
     })
@@ -382,4 +534,26 @@ async def delete_document(name: str, request: Request):
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
- 
+@router.delete("/api/kb/{name}/url")
+async def delete_url_document(name: str, request: Request):
+    """Delete URL document from specific KB"""
+    try:
+        data = await request.json()
+        url_or_hash = data.get('url_or_hash')
+        
+        if not url_or_hash:
+            return JSONResponse({"success": False, "message": "URL or hash is required"}, status_code=400)
+            
+        kb = await get_kb_instance(name)
+        
+        # Check if kb has URL document support
+        if not hasattr(kb, 'url_docs'):
+            return JSONResponse({"success": False, 
+                              "message": "This knowledge base was created with an older version and doesn't support URL documents"}, 
+                              status_code=400)
+            
+        # Remove URL document
+        await kb.remove_url_document(url_or_hash)
+        return JSONResponse({"success": True})
+    except Exception as e:
+        return JSONResponse({"success": False, "message": str(e)}, status_code=500)
