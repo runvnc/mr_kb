@@ -536,6 +536,10 @@ class HierarchicalKnowledgeBase:
             # Get file path from URL info
             file_path = self.url_docs[url_hash]["file_path"]
             
+            # If this document is also in verbatim documents, remove it from there first
+            # This ensures all references to the document are removed
+            await self.remove_verbatim_document(file_path)
+            
             # Remove document from the index
             await self.remove_document(file_path)
             
@@ -614,11 +618,14 @@ class HierarchicalKnowledgeBase:
             if doc_id is None:
                 logger.warning(f"Verbatim document not found: {file_path}")
                 return
-            
-            # Remove the verbatim text file
+
+            # Check if verbatim path exists before trying to remove
             verbatim_path = self.verbatim_docs[doc_id]["verbatim_path"]
             if os.path.exists(verbatim_path):
-                os.remove(verbatim_path)
+                try:
+                    os.remove(verbatim_path)
+                except Exception as e:
+                    logger.warning(f"Could not remove verbatim file {verbatim_path}: {str(e)}")
             
             # Remove from the index
             del self.verbatim_docs[doc_id]
