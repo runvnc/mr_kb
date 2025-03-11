@@ -150,6 +150,10 @@ class KnowledgeBaseManager extends BaseEl {
 
     button.refresh {
       background: #2a402a;
+      padding: 0.5rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
 
     button.refresh:hover {
@@ -603,7 +607,6 @@ class KnowledgeBaseManager extends BaseEl {
                 <tr>
                   <th>Document</th>
                   <th>Size</th>
-                  <th>Source</th>
                   <th>Verbatim</th>
                   <th>Actions</th>
                 </tr>
@@ -611,16 +614,13 @@ class KnowledgeBaseManager extends BaseEl {
               <tbody>
                 ${this.documents.map(doc => html`
                   <tr>
-                    <td>${doc.file_name}</td>
-                    <td>${doc.size}</td>
                     <td>
                       ${doc.is_url ? html`
-                        <span class="url-source">
-                          <a href="${doc.url}" target="_blank">${doc.url}</a>
-                          <br><small>Last updated: ${this.formatDate(doc.last_refreshed)}</small>
-                        </span>
-                      ` : html`Local File`}
+                        <a href="${doc.url}" target="_blank">${doc.url}</a>
+                        <br><small>Last updated: ${this.formatDate(doc.last_refreshed)}</small>
+                      ` : html`${doc.file_name}`}
                     </td>
+                    <td>${doc.size}</td>
                     <td>
                       <input type="checkbox" 
                              ?checked=${doc.is_verbatim} 
@@ -634,7 +634,7 @@ class KnowledgeBaseManager extends BaseEl {
                           <button class="refresh"
                                   @click=${() => this.refreshUrl(doc.url_hash, doc.url)}
                                   title="Refresh content from URL">
-                            ⟳ Refresh
+                            ⟳
                           </button>
                         ` : ''}
                         <button class="delete"
