@@ -146,7 +146,7 @@ async def query_kb(kb_name: str, match_text: str, context=None):
     
     Params:
 
-        kb - String.            The name of the knowledgebase to search
+        kb_name - String.            The name of the knowledgebase to search
 
         match_text - String.    A snippet of text to try to match in the KB.
                                 This will be converted to an embedding and 
