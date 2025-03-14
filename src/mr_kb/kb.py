@@ -335,7 +335,7 @@ class HierarchicalKnowledgeBase:
             full_text = await extract_text_from_file(file_path)
             
             # Check document size - limit verbatim inclusion for very large documents
-            MAX_VERBATIM_SIZE = 50000  # ~50KB, adjust as needed
+            MAX_VERBATIM_SIZE = 125000  # ~50KB, adjust as needed
             if len(full_text) > MAX_VERBATIM_SIZE and not force_verbatim:
                 logger.warning(f"Document {os.path.basename(file_path)} exceeds verbatim size limit "
                               f"({len(full_text)} > {MAX_VERBATIM_SIZE}). "
