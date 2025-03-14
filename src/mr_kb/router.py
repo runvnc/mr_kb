@@ -448,6 +448,10 @@ async def toggle_document_verbatim(name: str, request: Request):
         verbatim = data.get("verbatim", False)
         force_verbatim = data.get("force_verbatim", False)
         
+        debug_box("----------------------------------------------")
+        print({"verbatim": verbatim})
+        print({"force_verbatim": force_verbatim})
+
         if not file_path:
             return JSONResponse({"success": False, "message": "File path is required"}, status_code=400)
             
@@ -474,16 +478,18 @@ async def toggle_document_verbatim(name: str, request: Request):
         
         # If turning off verbatim, remove from verbatim docs
         if not verbatim:
+            print(f"Removing verbatim document: {file_path}")
             await kb.remove_verbatim_document(file_path)
             return JSONResponse({"success": True, "verbatim": False})
         
         # If turning on verbatim, add as verbatim document
+        print(f"Adding verbatim document: {file_path}")
         await kb.add_document(
             file_path=file_path,
             always_include_verbatim=True,
             force_verbatim=force_verbatim
         )
-        
+        print("Done")
         return JSONResponse({"success": True, "verbatim": True})
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
