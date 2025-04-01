@@ -205,6 +205,9 @@ async def add_url_to_kb_cmd(name: str, url: str, context=None):
 @pipe(name='pre_process_msg', priority=10)
 async def enrich_with_kb(data: dict, context=None) -> dict:
     """Add relevant knowledge base context to messages"""
+    if os.environ.get("MR_KB_QUIET", "False") == "True":
+        print("KB in quiet (query only) mode")
+        return data
     debug_box("Top of enrich_with_kb")
     # get the name of the agent from the context
     # find the kbs that the agent is set to use
