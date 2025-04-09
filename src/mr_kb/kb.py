@@ -718,7 +718,14 @@ class HierarchicalKnowledgeBase:
                 """
 
         return docs_info
-    
+
+    def find_root_node(self, node):
+        if node.parent_node is None:
+            return node
+        else:
+            return self.find_root_node(node.parent_node)
+ 
+
     def _get_verbatim_documents(self):
         """Get all verbatim documents.
         
@@ -836,6 +843,9 @@ class HierarchicalKnowledgeBase:
                     print(jsonpickle.encode(node, unpicklable=False))
                 except Exception as e:
                     pass
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                root_node = self.find_root_node(node.node)
+                print(root_node.text)
 
             raw_results = [r for r in raw_results if r[2] >= min_score]
              
