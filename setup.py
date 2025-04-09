@@ -13,6 +13,7 @@ setup(
         "python-magic>=0.4.24",
         "tiktoken>=0.5.0",
         "rank_bm25>=0.2.2",
+        "jsonpickle",
         "pandas>=2.0.0",  # For Excel support
         "openpyxl>=3.0.0",  # For Excel support
         "python-docx>=0.8.11",  # For Word support

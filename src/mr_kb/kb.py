@@ -22,7 +22,7 @@ import llama_index.core.instrumentation as instrument
 from llama_index.core.instrumentation.events.retrieval import RetrievalStartEvent, RetrievalEndEvent
 from llama_index.core.instrumentation.event_handlers import BaseEventHandler
 import traceback
-
+import jsonpickle
 import hashlib
 
 dispatcher = instrument.get_dispatcher(__name__)
@@ -831,7 +831,7 @@ class HierarchicalKnowledgeBase:
                 print(node.node)
                 print('________________________________________________________________________________________________')
                 try:
-                    print(json.dumps(node, indent=2))
+                    print(jsonpickle.encode(node, unpicklable=False))
                 except Exception as e:
                     pass
 
