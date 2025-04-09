@@ -823,6 +823,17 @@ class HierarchicalKnowledgeBase:
                     node.score,
                     len(node.node.text)) for node in nodes]
 
+            for i in range(2):
+                print('...............................................................................................')
+                print(node)
+                print(',,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,')
+                print(node.node)
+                print('________________________________________________________________________________________________')
+                try:
+                    print(json.dumps(node, indent=2))
+                except Exception as e:
+                    pass
+
             raw_results = [r for r in raw_results if r[2] >= min_score]
              
             # Apply enhanced keyword matching and filtering
@@ -839,7 +850,7 @@ class HierarchicalKnowledgeBase:
                 # Limit to final_top_k + number of verbatim docs
                 # This ensures all verbatim docs are included plus up to final_top_k regular results
                 return combined_results[:len(verbatim_results) + final_top_k]
-            
+           
             return enhanced_results
             
         except Exception as e:
