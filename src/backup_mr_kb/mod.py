@@ -162,12 +162,13 @@ async def query_kb(kb_name: str, match_text: str, context=None):
     { "query_kb": { "kb_name": "general", "match_text": "The capital of France is ..." } }
     """
     kb = await get_kb_instance(kb_name)
-    text, stats = await kb.get_relevant_context(
+    results = await kb.get_relevant_context(
         match_text,
         similarity_top_k=15,
         final_top_k=15
     )
-    return text
+    str_results = f"From KB:\n\n{results}"
+    return str_results
 
 
 @command()

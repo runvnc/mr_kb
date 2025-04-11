@@ -846,6 +846,23 @@ class HierarchicalKnowledgeBase:
                     node.score,
                     len(node.node.text)) for node in nodes]
 
+            for i in range(2):
+                node = nodes[i]
+                print('...............................................................................................')
+                print(node)
+                print(',,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,')
+                print(node.node)
+                print(';;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;')
+                print(dir(node.node))
+                print('________________________________________________________________________________________________')
+                try:
+                    print(jsonpickle.encode(node, unpicklable=False))
+                except Exception as e:
+                    pass
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                root_node = self.find_root_node(node.node)
+                print(root_node.text)
+
             raw_results = [r for r in raw_results if r[2] >= min_score]
              
             # Apply enhanced keyword matching and filtering
@@ -916,6 +933,7 @@ class HierarchicalKnowledgeBase:
         
         # Format for detailed view
         context = "### [Retrieved Knowledge Base Results]\n"
+        context += "Note: Results are ranked by relevance. 'Essential Documents' are always included.\n\n"
             
         # Add verbatim documents first with special formatting
         if verbatim_results:
@@ -931,6 +949,7 @@ class HierarchicalKnowledgeBase:
         
         # Add regular results
         if regular_results:
+            context += "## RELATED CONTENT\n\n"
             context += "Note: Results are ranked by relevance score. Higher scores indicate stronger matches.\n"
             context += "Some results with lower scores may be less relevant or unrelated to user query.\n\n"
             
@@ -940,14 +959,13 @@ class HierarchicalKnowledgeBase:
                 file_type = metadata.get('file_type', 'Unknown')
                 creation_date = metadata.get('creation_date', 'Unknown')
                 # Format metadata header
-                context += "| File | Score | Type | Creation Date | Size |\n"
-                context += "|------|------|------|-------------|---------|\n"
-                context += f"|{file_name} | {score: .3f} | {file_type} | {creation_date} | {chunk_size} |\n"
-                context += "\n"
-                context += f"{text}\n\n"
-                context += "___\n\n"
+                context += f"[File: {file_name} | Type: {file_type} | "
+                context += f"Created: {creation_date} | "
+                context += f"Score: {score:.3f} | Size: {chunk_size}]\n"
+                context += f"{text}\n"
+                context += "-" * 80 + "\n\n"  # Separator between chunks
             
-            context += "## End of Retrieved Results"
+            context += "[End of Retrieved Results]\n"
 
         # end timing
         end_time = datetime.datetime.now()

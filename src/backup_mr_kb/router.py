@@ -13,7 +13,6 @@ import datetime
 import re
 import csv
 from lib.utils.debug import debug_box
-from .csv_parser import detect_csv_format, parse_csv, generate_column_names, create_column_map, get_csv_preview
 
 # Dictionary to store processing tasks and their status
 processing_tasks = {}
@@ -165,7 +164,6 @@ async def process_csv_document(name, file_path, config, task_id):
     """Process CSV document with progress tracking"""
     try:
         # Get KB instance
-        print(f"Processing CSV document: {file_path}")
         kb = await get_kb_instance(name)
         
         # Update task status to indicate processing has started
@@ -176,36 +174,7 @@ async def process_csv_document(name, file_path, config, task_id):
         def progress_callback(progress):
             processing_tasks[task_id]["progress"] = int(progress * 100)
         
-        # Get the expected row count from the config if available
-        expected_row_count = config.get("expected_row_count")
-        
-        # Parse the CSV file using our consolidated parser
-        with open(file_path, 'r', encoding='utf-8', newline='') as f:
-            file_content = f.read()
-        
-        # Log the file content for debugging
-        print(f"CSV file content length: {len(file_content)} bytes")
-        print(f"First 200 chars: {file_content[:200]}")
-        
-        dialect, has_header, has_multiple_quotes = detect_csv_format(file_content)
-        rows = parse_csv(file_content=file_content, dialect=dialect)
-        
-        # Check if the row count matches what we expected
-        actual_row_count = len(rows)
-        print(f"Parsed {actual_row_count} rows from CSV file")
-        print(f"Expected row count: {expected_row_count}")
-        if expected_row_count is not None and actual_row_count != expected_row_count:
-            error_msg = f"Row count mismatch: expected {expected_row_count} rows but parsed {actual_row_count} rows. CSV parsing may be incorrect."
-            print(error_msg)
-            processing_tasks[task_id]["status"] = "error"
-            processing_tasks[task_id]["message"] = error_msg
-            return
-        
-        # Add the parsed rows to the config
-        config["preprocessed_rows"] = rows
-        config["has_header"] = has_header
-        config["has_multiple_quotes"] = has_multiple_quotes
-        
+        # Add CSV document to KB with progress tracking
         result = await kb.add_csv_document(file_path, config, progress_callback=progress_callback)
         
         # Update task status to indicate completion
@@ -353,13 +322,76 @@ async def preview_csv_file(name: str, file: UploadFile = File(...), request: Req
         # Read the CSV file to get a preview
         preview_data = {}
         try:
-            # Get CSV preview using the consolidated parser
-            preview_data = get_csv_preview(temp_path, max_rows=10)
+            # Set a high field size limit for large text fields
+            csv.field_size_limit(1000000)
+            
+            # Read the file content
+            with open(temp_path, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+            
+            # Try to determine if this is a standard CSV or has special quoting
+            has_multiple_quotes = '"""' in file_content
+            
+            # Create a custom dialect for files with multiple quotes
+            if has_multiple_quotes:
+                class CustomDialect(csv.excel):
+                    quotechar = '\"'
+                    doublequote = True
+                    quoting = csv.QUOTE_ALL
+                    skipinitialspace = False
+                dialect = CustomDialect()
+                has_header = False  # For files with multiple quotes, assume no headers by default
+            else:
+                # Try to detect the dialect for standard CSV files
+                try:
+                    dialect = csv.Sniffer().sniff(file_content[:1024])
+                    has_header = csv.Sniffer().has_header(file_content[:1024])
+                except:
+                    dialect = csv.excel
+                    has_header = False  # Default to no headers if detection fails
+            
+            # Parse the CSV with appropriate settings
+            rows = []
+            reader = csv.reader(file_content.splitlines(), dialect=dialect)
+            for i, row in enumerate(reader):
+                rows.append(row)
+                if i >= 10:  # Limit preview to 10 rows
+                    break
+            
+            # Generate default column names if no headers
+            default_column_names = []
+            if rows:
+                max_cols = max(len(row) for row in rows)
+                # Generate column names like 'A', 'B', 'C' or 'Column 1', 'Column 2', etc.
+                for i in range(max_cols):
+                    # Use alphabetical names for first 26 columns, then switch to numbers
+                    default_column_names.append(chr(65 + i) if i < 26 else f"Column {i+1}")
+            
+            # Get column count from the longest row
+            max_cols = max(len(row) for row in rows) if rows else 0
+                
+            preview_data = {
+                "rows": rows,
+                "dialect": {
+                    "delimiter": dialect.delimiter,
+                    "doublequote": dialect.doublequote,
+                    "escapechar": dialect.escapechar,
+                    "lineterminator": repr(dialect.lineterminator),
+                    "quotechar": dialect.quotechar,
+                    "quoting": dialect.quoting,
+                    "skipinitialspace": dialect.skipinitialspace
+                } if hasattr(dialect, 'delimiter') else str(dialect),
+                "has_header": has_header,
+                "default_column_names": default_column_names,
+                "column_count": max_cols,
+                "row_count": len(rows),
+                "temp_path": temp_path
+            }
         except Exception as e:
             # Clean up temp file on error
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
-            raise e
+            raise ValueError(f"Failed to parse CSV file: {str(e)}")
         
         return JSONResponse({
             "success": True, 
@@ -430,25 +462,15 @@ async def upload_csv_document(name: str,
             "config": config_dict
         }
         
-        # Use our consolidated CSV parser to prepare the file for processing
-        try:
-            # Get CSV preview to extract format information
-            preview_data = get_csv_preview(permanent_path)
-            
-            # Store the expected row count for validation during processing
-            config_dict["expected_row_count"] = preview_data["row_count"]
-            
-            # Add the detected format information to the config
-            config_dict["has_header"] = preview_data["has_header"]
-            config_dict["has_multiple_quotes"] = preview_data["has_multiple_quotes"]
-            
-            # If no column_map is provided, use the default column names
-            if "column_map" not in config_dict or not config_dict["column_map"]:
-                column_names = preview_data["default_column_names"]
-                config_dict["column_map"] = {i: name for i, name in enumerate(column_names)}
-        
-        except Exception as e:
-            print(f"Error preparing CSV file: {str(e)}")
+        # If no column_map is provided in config, generate default column names
+        if "column_map" not in config_dict or not config_dict["column_map"]:
+            # Generate default column names (A, B, C, etc.)
+            with open(permanent_path, 'r', encoding='utf-8') as f:
+                sample = f.read(1024)
+            dialect = csv.Sniffer().sniff(sample)
+            reader = csv.reader([sample], dialect=dialect)
+            first_row = next(reader, [])
+            config_dict["column_map"] = {i: chr(65 + i) if i < 26 else f"Column {i+1}" for i in range(len(first_row))}
         
         # Start background task for processing
         asyncio.create_task(process_csv_document(name, permanent_path, config_dict, task_id))
