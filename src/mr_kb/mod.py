@@ -387,6 +387,8 @@ async def filter_kb_messages(data: dict, context=None) -> dict:
                                 if data['messages'][0]['role'] == 'system':
                                     if isinstance(data['messages'][0]['content'], str):
                                         data['messages'][0]['content'] += f"\n\n{delimited_verbatim}"
+                                    else:
+                                        data['messages'][0]['content'][0]['text'] += f"\n\n{delimited_verbatim}"
                                     # Could handle other content types if needed here
             except Exception as e:
                 trace = traceback.format_exc()

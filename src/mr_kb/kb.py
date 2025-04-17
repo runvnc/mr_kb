@@ -212,7 +212,7 @@ class HierarchicalKnowledgeBase:
             if self.supported_types[".docx"]:
                 file_extractor[".docx"] = DocxReader()
             
-            documents = SimpleDirectoryReader(data_dir, file_extractor=file_extractor).load_data()
+            documents = SimpleDirectoryReader(data_dir, file_extractor=file_extractor).load_data(num_workers=5)
 
             if not documents:
                 raise ValueError(f"No documents found in {data_dir}")
