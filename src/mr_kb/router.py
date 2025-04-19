@@ -205,7 +205,7 @@ async def process_csv_document(name, file_path, config, task_id):
         config["preprocessed_rows"] = rows
         config["has_header"] = has_header
         config["has_multiple_quotes"] = has_multiple_quotes
-        
+       
         result = await kb.add_csv_document(file_path, config, progress_callback=progress_callback)
         
         # Update task status to indicate completion

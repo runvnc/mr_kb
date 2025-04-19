@@ -999,6 +999,7 @@ class HierarchicalKnowledgeBase:
             # Call progress callback with initial progress
             if progress_callback:
                 progress_callback(0.1)  # 10% progress for setup
+
             
             # Parse the CSV file
             documents = []
@@ -1010,33 +1011,42 @@ class HierarchicalKnowledgeBase:
             # Combine all metadata columns
             all_metadata_cols = list(set(key_metadata_cols + metadata_cols))
             
-            # Read the CSV file
-            with open(file_path, 'r', encoding='utf-8', newline='') as f:
-                # Try to detect the dialect
-                try:
-                    dialect = csv.Sniffer().sniff(f.read(1024))
-                    f.seek(0)
-                except:
-                    dialect = 'excel'  # Default to Excel dialect if detection fails
-                
-                # Read the CSV with the detected dialect
-                reader = csv.reader(f, dialect=dialect)
-                rows = list(reader)
-            
-            # Get column headers if available (first row)
-            headers = rows[0] if rows else []
+            # Use preprocessed rows if available in config, otherwise parse the file
+            rows = []
+            if "preprocessed_rows" in config and config["preprocessed_rows"]:
+                rows = config["preprocessed_rows"]
+                print(f"Using {len(rows)} preprocessed rows from config")
+            else:
+                print("No preprocessed rows found in config, parsing CSV file")
+                # Read the CSV file
+                with open(file_path, 'r', encoding='utf-8', newline='') as f:
+                    # Try to detect the dialect
+                    try:
+                        dialect = csv.Sniffer().sniff(f.read(1024))
+                        f.seek(0)
+                    except:
+                        dialect = 'excel'  # Default to Excel dialect if detection fails
+                    
+                    # Read the CSV with the detected dialect
+                    reader = csv.reader(f, dialect=dialect)
+                    rows = list(reader)
+
+            # Get column headers if available (first row) based on has_header config
+            has_header = config.get("has_header", True)
+            headers = rows[0] if rows and has_header else []
             
             # Process each row
             total_rows = len(rows)
             for i, row in enumerate(rows):
                 # Skip header row if it exists and is configured to be skipped
-                if i == 0 and config.get("has_header", True):
+                if i == 0 and has_header:
                     continue
                     
                 try:
                     # Check if row has enough columns
-                    if len(row) <= max([text_col, id_col] + all_metadata_cols):
-                        logger.warning(f"Row {i} has insufficient columns, skipping")
+                    max_required_col = max([text_col, id_col] + all_metadata_cols) if all_metadata_cols else max(text_col, id_col)
+                    if len(row) <= max_required_col:
+                        logger.warning(f"Row {i} has insufficient columns ({len(row)} <= {max_required_col}), skipping")
                         continue
                     
                     # Extract text and document ID
@@ -1191,7 +1201,9 @@ class HierarchicalKnowledgeBase:
                     
                 try:
                     # Check if row has enough columns
-                    if len(row) <= max([text_col, id_col] + all_metadata_cols):
+                    max_required_col = max([text_col, id_col] + all_metadata_cols) if all_metadata_cols else max(text_col, id_col)
+                    if len(row) <= max_required_col:
+                        logger.warning(f"Row {i} has insufficient columns ({len(row)} <= {max_required_col}), skipping")
                         continue
                     
                     # Extract text and document ID
@@ -1420,6 +1432,7 @@ class HierarchicalKnowledgeBase:
             
             # Find all documents from this CSV source
             rows = []
+            seen_doc_ids = set()  # Track doc_ids we've already processed
             for node_id, node in self.index.docstore.docs.items():
                 if node.metadata.get("csv_source_id") == csv_source_id:
                     # Create a row object with text and metadata
@@ -1429,6 +1442,12 @@ class HierarchicalKnowledgeBase:
                         "doc_id": node.metadata.get("doc_id", ""),
                         "row_index": node.metadata.get("row_index", 0)
                     }
+                    
+                    # Skip if we've already seen this doc_id to avoid duplicates
+                    doc_id = node.metadata.get("doc_id", "")
+                    if doc_id in seen_doc_ids:
+                        continue
+                    seen_doc_ids.add(doc_id)
                     
                     # Add all metadata fields that start with "col_" or are in the metadata
                     for key, value in node.metadata.items():
