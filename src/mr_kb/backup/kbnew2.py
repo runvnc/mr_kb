@@ -1,5 +1,4 @@
 from llama_index.core.indices import VectorStoreIndex
-from llama_index.core.indices.base import BaseIndex
 from llama_index.core.readers import SimpleDirectoryReader
 from llama_index.core.storage import StorageContext
 from llama_index.core import Document, load_index_from_storage
@@ -15,7 +14,6 @@ from .keyword_matching.enhanced_matching import enhance_search_results
 import re
 import asyncio
 import logging
-import contextlib
 from contextlib import contextmanager
 import csv
 import shutil
@@ -30,26 +28,6 @@ from llama_index.core.instrumentation.event_handlers import BaseEventHandler
 import traceback
 import jsonpickle
 import hashlib
-from llama_index.embeddings.openai import OpenAIEmbedding
-from llama_index.core.node_parser import SimpleNodeParser
-
-
-embedding_call_count = 0
-
-from llama_index.core import Settings
-
-Settings.embed_model = OpenAIEmbedding(
-    model="text-embedding-3-small", embed_batch_size=100
-)
-original_get_text_embedding = OpenAIEmbedding.get_text_embedding
-
-def count_embedding_calls(self, text):
-    global embedding_call_count
-    embedding_call_count += 1
-    logger.info(f"Embedding API call #{embedding_call_count}")
-    return original_get_text_embedding(self, text)
-
-OpenAIEmbedding.get_text_embedding = count_embedding_calls
 
 dispatcher = instrument.get_dispatcher(__name__)
 class RetrievalEventHandler(BaseEventHandler):
@@ -77,8 +55,6 @@ def get_file_handlers(supported_types: Dict[str, bool]) -> Dict[str, callable]:
 @contextmanager
 def atomic_index_update(kb_instance: 'HierarchicalKnowledgeBase'):
     """Context manager for atomic index updates with rollback capability."""
-    logger.info("Called atomic index update, ignoring")
-    return
     # Create backup of persist_dir if it exists
     backup_dir = None
     if os.path.exists(kb_instance.persist_dir):
@@ -177,12 +153,8 @@ class HierarchicalKnowledgeBase:
         
         # Configure embedding model        # Configure embedding model
         if embedding_model is None or embedding_model.lower() in ['openai', 'default']:
-            self.embed_model = OpenAIEmbedding(
-                model="text-embedding-3-small",
-                embed_batch_size=100
-            )
+            self.embed_model = None  # LlamaIndex will use OpenAI default
         else:
-            raise ValueError(f"Unsupported embedding model: {embedding_model}")
             # Assume it's a HuggingFace model name
             from llama_index.embeddings import HuggingFaceEmbedding
             self.embed_model = HuggingFaceEmbedding(model_name=embedding_model)
@@ -190,12 +162,7 @@ class HierarchicalKnowledgeBase:
         self.node_parser = HierarchicalNodeParser.from_defaults(
             chunk_sizes=chunk_sizes
         )
-
-        self.simple_node_parser = SimpleNodeParser.from_defaults(
-            chunk_size=100000,  # Very large to avoid chunking
-            chunk_overlap=0     # No overlap needed
-        )
-
+        
         self.index = None
         self.text_index = None
         self.metadata_index = None
@@ -213,14 +180,11 @@ class HierarchicalKnowledgeBase:
         # Check for ChromaDB files first (preferred)
         chroma_exists = os.path.exists(self.chroma_dir) and os.path.isdir(self.chroma_dir)
         if chroma_exists:
-            logger.info(f"ChromaDB directory exists: {self.chroma_dir}")
             # Check if collections exist
             try:
                 self.chroma_client.get_collection(self.text_collection_name)
-                logger.info(f"ChromaDB collection exists: {self.text_collection_name}")
                 return True
             except Exception:
-                logger.warning(f"ChromaDB collection does not exist: {self.text_collection_name}")
                 chroma_exists = False  # Collection doesn't exist or can't be accessed
                 pass
         
@@ -240,8 +204,7 @@ class HierarchicalKnowledgeBase:
 
         if old_style_exists:
             self.using_old_style = True
-        logger.info(f"Old-style index files exist: {old_style_exists}")
-        logger.info(f"chroma_exists: {chroma_exists}")
+        
         return chroma_exists or old_style_exists
 
     def _setup_vector_stores(self):
@@ -277,8 +240,6 @@ class HierarchicalKnowledgeBase:
             self._setup_vector_stores()
             # Load ChromaDB indices
             self.text_index = VectorStoreIndex.from_vector_store(self.text_vector_store, embed_model=self.embed_model)
-            # metadata
-            self.metadata_index = VectorStoreIndex.from_vector_store(self.metadata_vector_store, embed_model=self.embed_model)
             self.index = self.text_index  # For backward compatibility
             return True
         
@@ -391,68 +352,71 @@ class HierarchicalKnowledgeBase:
 
             if skip_if_exists and self.load_if_exists():
                 # If we loaded an existing index, just refresh it with the new documents
-                print("Using existing index ADD_DOCUMENT in KB")
+                print("Using existing index")
                 self.text_index.refresh_ref_docs(documents)
                 self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
                 self._clear_retriever_cache()
 
                 return self.index
  
-            # Set up vector stores if not already done
-            if not hasattr(self, 'text_vector_store') or not self.text_vector_store:
-                self._setup_vector_stores()
-            
-            # Create storage contexts
-            text_storage_context = StorageContext.from_defaults(vector_store=self.text_vector_store)
-            metadata_storage_context = StorageContext.from_defaults(vector_store=self.metadata_vector_store)
-            
-            # Create text index
-            self.text_index = VectorStoreIndex(
-                all_nodes,
-                storage_context=text_storage_context,
-                embed_model=self.embed_model
-            )
-            
-            # Create metadata documents and index
-            metadata_documents = []
-            for node in all_nodes:
-                metadata_text = self._encode_metadata_for_indexing(node.metadata)
-                if metadata_text.strip():
-                    metadata_doc = Document(
-                        text=metadata_text,
-                        metadata={
-                            "source_node_id": node.id_,
-                            **node.metadata
-                        }
-                    )
-                    metadata_documents.append(metadata_doc)
-            
-            if metadata_documents:
-                metadata_nodes = self.node_parser.get_nodes_from_documents(metadata_documents)
-                self.metadata_index = VectorStoreIndex(
-                    metadata_nodes,
-                    storage_context=metadata_storage_context,
+
+            # Create a new index with ChromaDB
+            with atomic_index_update(self):
+                # Set up vector stores if not already done
+                if not hasattr(self, 'text_vector_store') or not self.text_vector_store:
+                    self._setup_vector_stores()
+                
+                # Create storage contexts
+                text_storage_context = StorageContext.from_defaults(vector_store=self.text_vector_store)
+                metadata_storage_context = StorageContext.from_defaults(vector_store=self.metadata_vector_store)
+                
+                # Create text index
+                self.text_index = VectorStoreIndex(
+                    all_nodes,
+                    storage_context=text_storage_context,
                     embed_model=self.embed_model
                 )
-            
-            # For backward compatibility, set index to text_index
-            self.index = self.text_index
-            
-            # Add old documents if migrating
-            if old_documents:
-                logger.info(f"Adding {len(old_documents)} documents from old index")
-                self.text_index.refresh_ref_docs(old_documents)
-            
-            # Persist indices
-            self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
-            if hasattr(self, 'metadata_index') and self.metadata_index:
-                self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
-            
-            # Initialize CSV handler
-            from .csv_handler import CSVDocumentHandler
-            self.csv_handler = CSVDocumentHandler(self)
-            
-            self._clear_retriever_cache()
+                
+                # Create metadata documents and index
+                metadata_documents = []
+                for node in all_nodes:
+                    metadata_text = self._encode_metadata_for_indexing(node.metadata)
+                    if metadata_text.strip():
+                        metadata_doc = Document(
+                            text=metadata_text,
+                            metadata={
+                                "source_node_id": node.id_,
+                                **node.metadata
+                            }
+                        )
+                        metadata_documents.append(metadata_doc)
+                
+                if metadata_documents:
+                    metadata_nodes = self.node_parser.get_nodes_from_documents(metadata_documents)
+                    self.metadata_index = VectorStoreIndex(
+                        metadata_nodes,
+                        storage_context=metadata_storage_context,
+                        embed_model=self.embed_model
+                    )
+                
+                # For backward compatibility, set index to text_index
+                self.index = self.text_index
+                
+                # Add old documents if migrating
+                if old_documents:
+                    logger.info(f"Adding {len(old_documents)} documents from old index")
+                    self.text_index.refresh_ref_docs(old_documents)
+                
+                # Persist indices
+                self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+                if hasattr(self, 'metadata_index') and self.metadata_index:
+                    self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
+                
+                # Initialize CSV handler
+                from .csv_handler import CSVDocumentHandler
+                self.csv_handler = CSVDocumentHandler(self)
+                
+                self._clear_retriever_cache()
         except Exception as e:
             logger.error(f"Failed to create index: {str(e)}")
             raise DocumentProcessingError(f"Index creation failed: {str(e)}\n{traceback.format_exc()}") from e
@@ -588,18 +552,21 @@ class HierarchicalKnowledgeBase:
             if metadata_documents:
                 metadata_nodes = self.node_parser.get_nodes_from_documents(metadata_documents)
                 
-            self.text_index.insert_nodes(all_node)
+            with atomic_index_update(self):
+                for node in all_nodes:
+                    self.text_index.insert_nodes([node])
+                    
+                # Add metadata nodes if available
+                if hasattr(self, 'metadata_index') and self.metadata_index and metadata_nodes:
+                    for node in metadata_nodes:
+                        self.metadata_index.insert_nodes([node])
                 
-            # Add metadata nodes if available
-            if hasattr(self, 'metadata_index') and self.metadata_index and metadata_nodes:
-                self.metadata_index.insert_nodes(metadata_nodes)
-            
-            # Persist indices
-            self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
-            if hasattr(self, 'metadata_index') and self.metadata_index:
-                self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
-            
-            self._clear_retriever_cache()
+                # Persist indices
+                self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+                if hasattr(self, 'metadata_index') and self.metadata_index:
+                    self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
+                
+                self._clear_retriever_cache()
                 
         except Exception as e:
             logger.error(f"Failed to add document: {str(e)}")
@@ -872,37 +839,37 @@ class HierarchicalKnowledgeBase:
             if len(nodes_to_remove) == 0:
                 raise ValueError(f"No docs found for document: {file_path}")
 
-            for doc_id in nodes_to_remove:
-                self.text_index.delete_ref_doc(doc_id, delete_from_docstore=True, delete_from_vectorstore=remove_from_chroma)
-                print("Deleted doc: ", doc_id)
-                
-                # Also remove from metadata index if it exists
-                if remove_from_metadata_index and hasattr(self, 'metadata_index') and self.metadata_index:
-                    # Find and delete corresponding metadata nodes
-                    meta_nodes_to_remove = []
-                    for meta_node_id, meta_node in self.metadata_index.docstore.docs.items():
-                        if meta_node.metadata.get("file_path") == file_path:
-                            meta_nodes_to_remove.append(meta_node_id)
+            with atomic_index_update(self):
+                for doc_id in nodes_to_remove:
+                    self.text_index.delete_ref_doc(doc_id, delete_from_docstore=True, delete_from_vectorstore=remove_from_chroma)
+                    print("Deleted doc: ", doc_id)
                     
-                    for meta_node_id in meta_nodes_to_remove:
-                        self.metadata_index.delete_ref_doc(meta_node_id, delete_from_docstore=True, delete_from_vectorstore=remove_from_chroma)
-                        print(f"Deleted metadata node: {meta_node_id}")
-            
-            # Persist updates
-            self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
-            self.text_index.docstore.persist()
-            
-            # Persist metadata index if it exists
-            if hasattr(self, 'metadata_index') and self.metadata_index:
-                self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
-                self.metadata_index.docstore.persist()
+                    # Also remove from metadata index if it exists
+                    if remove_from_metadata_index and hasattr(self, 'metadata_index') and self.metadata_index:
+                        # Find and delete corresponding metadata nodes
+                        meta_nodes_to_remove = []
+                        for meta_node_id, meta_node in self.metadata_index.docstore.docs.items():
+                            if meta_node.metadata.get("file_path") == file_path:
+                                meta_nodes_to_remove.append(meta_node_id)
+                        
+                        for meta_node_id in meta_nodes_to_remove:
+                            self.metadata_index.delete_ref_doc(meta_node_id, delete_from_docstore=True, delete_from_vectorstore=remove_from_chroma)
+                            print(f"Deleted metadata node: {meta_node_id}")
+                
+                # Persist updates
+                self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+                self.text_index.docstore.persist()
+                
+                # Persist metadata index if it exists
+                if hasattr(self, 'metadata_index') and self.metadata_index:
+                    self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
+                    self.metadata_index.docstore.persist()
 
-            print("Saved docstore")
-            self._clear_retriever_cache()
+                print("Saved docstore")
+                self._clear_retriever_cache()
         except Exception as e:
             logger.error(f"Failed to remove document: {str(e)}")
             raise DocumentProcessingError(f"Document removal failed: {str(e)}. {traceback.format_exc()}") from e 
-            
     async def remove_verbatim_document(self, file_path: str):
         """Remove a verbatim document.
         
@@ -1289,8 +1256,9 @@ class HierarchicalKnowledgeBase:
         # Also clear any cached retrievers for text and metadata indices
         if hasattr(self, 'text_index') and self.text_index:
             self.text_index._retriever = None
-    
-    async def add_csv_document(self, file_path: str, config: dict, progress_callback: Optional[Callable[[float], None]] = None):
+
+    async def add_csv_document(self, file_path: str, config: dict, 
+                             progress_callback: Optional[Callable[[float], None]] = None):
         """Add a CSV file as a collection of row-based documents.
         
         Args:
@@ -1302,16 +1270,155 @@ class HierarchicalKnowledgeBase:
                 - metadata_columns: List of column indices to store as metadata
             progress_callback: Optional callback for progress updates
         """
-        if not hasattr(self, 'csv_handler'):
-            from .csv_handler import CSVDocumentHandler
-            self.csv_handler = CSVDocumentHandler(self)
-        embedding_call_count = 0
-        return await self.csv_handler.add_csv_document(file_path, config, progress_callback)
+        if not hasattr(self, 'text_index') or not self.text_index:
+            raise ValueError("Index not initialized. Call create_index first.")
+
+        try:            
+            # Check if file exists
+            if not os.path.exists(file_path):
+                raise ValueError(f"File not found: {file_path}")
+            
+            # Generate a unique ID for the CSV source
+            source_id = os.path.basename(file_path)
+            safe_source_id = re.sub(r'[^\w\-\.]', '_', source_id)  # Make filename safe
+            
+            # Create a directory for this CSV source
+            source_dir = os.path.join(self.csv_docs_dir, safe_source_id)
+            os.makedirs(source_dir, exist_ok=True)
+            
+            # Save the configuration
+            config_path = os.path.join(source_dir, "config.json")
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2)
+            
+            # Call progress callback with initial progress
+            if progress_callback:
+                progress_callback(0.1)  # 10% progress for setup
+
+            
+            # Parse the CSV file
+            documents = []
+            text_col = config.get("text_column")
+            id_col = config.get("id_column")
+            key_metadata_cols = config.get("key_metadata_columns", [])
+            metadata_cols = config.get("metadata_columns", [])
+            
+            # Combine all metadata columns
+            all_metadata_cols = list(set(key_metadata_cols + metadata_cols))
+            
+            # Use preprocessed rows if available in config, otherwise parse the file
+            rows = []
+            if "preprocessed_rows" in config and config["preprocessed_rows"]:
+                rows = config["preprocessed_rows"]
+                print(f"Using {len(rows)} preprocessed rows from config")
+            else:
+                print("No preprocessed rows found in config, parsing CSV file")
+                # Read the CSV file
+                with open(file_path, 'r', encoding='utf-8', newline='') as f:
+                    # Try to detect the dialect
+                    try:
+                        dialect = csv.Sniffer().sniff(f.read(1024))
+                        f.seek(0)
+                    except:
+                        dialect = 'excel'  # Default to Excel dialect if detection fails
+                    
+                    # Read the CSV with the detected dialect
+                    reader = csv.reader(f, dialect=dialect)
+                    rows = list(reader)
+
+            # Get column headers if available (first row) based on has_header config
+            has_header = config.get("has_header", True)
+            headers = rows[0] if rows and has_header else []
+            
+            # Process each row
+            total_rows = len(rows)
+            print("Found {} rows in CSV file".format(total_rows))
+
+            for i, row in enumerate(rows):
+                # Skip header row if it exists and is configured to be skipped
+                if i == 0 and has_header:
+                    continue
+                    
+                try:
+                    # Check if row has enough columns
+                    max_required_col = max([text_col, id_col] + all_metadata_cols) if all_metadata_cols else max(text_col, id_col)
+                    if len(row) <= max_required_col:
+                        logger.warning(f"Row {i} has insufficient columns ({len(row)} <= {max_required_col}), skipping")
+                        continue
+                    
+                    # Extract text and document ID
+                    text = row[text_col].strip()
+                    doc_id = row[id_col].strip()
+                    
+                    # Skip empty rows
+                    if not text or not doc_id:
+                        logger.warning(f"Row {i} has empty text or ID, skipping")
+                        continue
+                    
+                    # Create metadata
+                    metadata = {
+                        "file_path": file_path,
+                        "file_name": os.path.basename(file_path),
+                        "file_type": "csv",
+                        "row_index": i,
+                        "csv_source_id": safe_source_id,
+                        "doc_id": doc_id,
+                        "is_csv_row": True
+                    }
+                    
+                    # Add column headers as metadata keys if available
+                    for col_idx in all_metadata_cols:
+                        if col_idx < len(row):
+                            col_name = f"col_{col_idx}"
+                            if headers and col_idx < len(headers):
+                                col_name = headers[col_idx]
+                            metadata[col_name] = row[col_idx]
+                    
+                    # Create document
+                    doc = Document(text=text, metadata=metadata)
+                    documents.append(doc)
+                    print(f"Processed row {i}: {text[:50]}...")  # Print first 50 chars of text for debugging
+                    # Update progress periodically
+                    if progress_callback and i % 10 == 0:
+                        progress_callback(0.1 + (0.8 * i / total_rows))
+                        
+                except Exception as e:
+                    logger.warning(f"Error processing row {i}: {str(e)}")
+            
+            # Save metadata about the CSV source
+            self.csv_docs[safe_source_id] = {
+                "file_path": file_path,
+                "file_name": os.path.basename(file_path),
+                "added_at": datetime.datetime.now().isoformat(),
+                "row_count": len(documents),
+                "config": config,
+                "config_path": config_path
+            }
+            
+            # Save the updated CSV docs index
+            with open(self.csv_docs_index_path, 'w') as f:
+                json.dump(self.csv_docs, f, indent=2)
+
+            if documents:
+                self.index.refresh_ref_docs(documents)
+                self.index.storage_context.persist(persist_dir=self.persist_dir)
+                self._clear_retriever_cache()
+            
+            # Call progress callback with completion
+            if progress_callback:
+                progress_callback(1.0)  # 100% progress for completion
+
+            logger.info(f"Added CSV document with {len(documents)} rows: {file_path}")
+            return self.csv_docs[safe_source_id]
+            
+        except Exception as e:
+            logger.error(f"Failed to add CSV document: {str(e)}")
+            raise DocumentProcessingError(f"CSV document addition failed: {str(e)}") from e
 
     # Initialize CSV handler in __init__ method
     async def sync_csv_document(self, file_path: str, progress_callback: Optional[Callable] = None):
         """Sync a CSV document with the index, updating/adding/removing rows as needed.
-
+        
         Args:
             file_path: Path to the CSV file
             progress_callback: Optional callback for progress updates
@@ -1319,42 +1426,390 @@ class HierarchicalKnowledgeBase:
         if not hasattr(self, 'text_index') or not self.text_index:
             raise ValueError("Index not initialized.")
             
-        if not hasattr(self, 'csv_handler'):
-            from .csv_handler import CSVDocumentHandler
-            self.csv_handler = CSVDocumentHandler(self)
-        return await self.csv_handler.sync_csv_document(file_path, progress_callback)
+        try:
+            # Check if file exists
+            if not os.path.exists(file_path):
+                raise ValueError(f"File not found: {file_path}")
+            
+            # Find the CSV source in our CSV docs index
+            source_id = os.path.basename(file_path)
+            safe_source_id = re.sub(r'[^\w\-\.]', '_', source_id)  # Make filename safe
+            
+            if safe_source_id not in self.csv_docs:
+                raise ValueError(f"CSV source not found: {file_path}")
+                
+            # Get the configuration
+            config = self.csv_docs[safe_source_id]["config"]
+            
+            # Call progress callback with initial progress
+            if progress_callback:
+                progress_callback(0.1)  # 10% progress for setup
+            
+            # Find all existing documents from this CSV source
+            existing_docs = {}
+            for node_id, node in self.text_index.docstore.docs.items():
+                if node.metadata.get("csv_source_id") == safe_source_id:
+                    doc_id = node.metadata.get("doc_id")
+                    if doc_id:
+                        existing_docs[doc_id] = node_id
+            
+            # Parse the CSV file to get new documents
+            text_col = config.get("text_column")
+            id_col = config.get("id_column")
+            key_metadata_cols = config.get("key_metadata_columns", [])
+            metadata_cols = config.get("metadata_columns", [])
+            all_metadata_cols = list(set(key_metadata_cols + metadata_cols))
+            
+            # Read the CSV file
+            with open(file_path, 'r', encoding='utf-8', newline='') as f:
+                # Try to detect the dialect
+                try:
+                    dialect = csv.Sniffer().sniff(f.read(1024))
+                    f.seek(0)
+                except:
+                    dialect = 'excel'  # Default to Excel dialect if detection fails
+                
+                # Read the CSV with the detected dialect
+                reader = csv.reader(f, dialect=dialect)
+                rows = list(reader)
+            
+            # Get column headers if available (first row)
+            headers = rows[0] if rows else []
+            
+            # Process each row to build new documents
+            new_docs = {}
+            for i, row in enumerate(rows):
+                # Skip header row if it exists and is configured to be skipped
+                if i == 0 and config.get("has_header", True):
+                    continue
+                    
+                try:
+                    # Check if row has enough columns
+                    max_required_col = max([text_col, id_col] + all_metadata_cols) if all_metadata_cols else max(text_col, id_col)
+                    if len(row) <= max_required_col:
+                        logger.warning(f"Row {i} has insufficient columns ({len(row)} <= {max_required_col}), skipping")
+                        continue
+                    
+                    # Extract text and document ID
+                    text = row[text_col].strip()
+                    doc_id = row[id_col].strip()
+                    
+                    # Skip empty rows
+                    if not text or not doc_id:
+                        continue
+                    
+                    # Create metadata
+                    metadata = {
+                        "file_path": file_path,
+                        "file_name": os.path.basename(file_path),
+                        "file_type": "csv",
+                        "row_index": i,
+                        "csv_source_id": safe_source_id,
+                        "doc_id": doc_id,
+                        "is_csv_row": True
+                    }
+                    
+                    # Add column headers as metadata keys if available
+                    for col_idx in all_metadata_cols:
+                        if col_idx < len(row):
+                            col_name = f"col_{col_idx}"
+                            if headers and col_idx < len(headers):
+                                col_name = headers[col_idx]
+                            metadata[col_name] = row[col_idx]
+                    
+                    # Create document
+                    new_docs[doc_id] = Document(text=text, metadata=metadata)
+                except Exception as e:
+                    logger.warning(f"Error processing row {i} during sync: {str(e)}")
+            
+            # Determine which documents to add, update, or delete
+            to_add = []
+            to_update = []
+            to_delete = set(existing_docs.keys()) - set(new_docs.keys())
+            
+            for doc_id, doc in new_docs.items():
+                if doc_id not in existing_docs:
+                    to_add.append(doc)
+                else:
+                    # Compare text to detect changes
+                    node_id = existing_docs[doc_id]
+                    existing_node = self.index.docstore.docs[node_id]
+                    if existing_node.text != doc.text:
+                        to_update.append((node_id, doc))
+            
+            # Update progress
+            if progress_callback:
+                progress_callback(0.3)  # 30% progress after analysis
+            
+            # Update index atomically
+            with atomic_index_update(self):
+                # Delete removed rows
+                for doc_id in list(to_delete):  # Convert to list to avoid modification during iteration
+                    self.index.delete_ref_doc(existing_docs[doc_id], delete_from_docstore=True)
+                
+                # Update changed rows
+                for node_id, doc in to_update:
+                    self.index.delete_ref_doc(node_id, delete_from_docstore=True)
+                    nodes = self.node_parser.get_nodes_from_documents([doc])
+                    for node in nodes:
+                        self.text_index.insert_nodes([node])
+                
+                # Add new rows
+                if to_add:
+                    nodes = self.node_parser.get_nodes_from_documents(to_add)
+                    for node in nodes:
+                        self.index.insert_nodes([node])
+                
+                # Add metadata documents if we have a metadata index
+                if hasattr(self, 'metadata_index') and self.metadata_index:
+                    # Create and add metadata documents for new rows
+                    # This would be similar to the code in add_csv_document
+                    pass
+                
+                # Persist updates
+                self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+                if hasattr(self, 'metadata_index') and self.metadata_index:
+                    self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
+                self._clear_retriever_cache()
+            
+            # Update CSV source metadata
+            self.csv_docs[safe_source_id]["row_count"] = len(new_docs)
+            self.csv_docs[safe_source_id]["last_synced"] = datetime.datetime.now().isoformat()
+            
+            # Save the updated CSV docs index
+            with open(self.csv_docs_index_path, 'w') as f:
+                json.dump(self.csv_docs, f, indent=2)
+            
+            # Call progress callback with completion
+            if progress_callback:
+                progress_callback(1.0)  # 100% progress for completion
+            
+            logger.info(f"CSV sync complete: {len(to_add)} added, {len(to_update)} updated, {len(to_delete)} deleted")
+            return {
+                "added": len(to_add),
+                "updated": len(to_update),
+                "deleted": len(to_delete),
+                "total": len(new_docs)
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to sync CSV document: {str(e)}")
+            raise DocumentProcessingError(f"CSV document sync failed: {str(e)}") from e
 
     async def update_csv_row(self, csv_source_id: str, doc_id: str, new_text: str, new_metadata: dict = None, update_metadata_index: bool = True):
         """Update a single row in a CSV document.
-        """
-        if not hasattr(self, 'csv_handler'):
-            from .csv_handler import CSVDocumentHandler
-            self.csv_handler = CSVDocumentHandler(self)
-        return await self.csv_handler.update_csv_row(csv_source_id, doc_id, new_text, new_metadata)
-   
-    async def delete_csv_row(self, csv_source_id: str, doc_id: str):
-        """Delete a single row from a CSV document.
-        """
-        if not hasattr(self, 'csv_handler'):
-            from .csv_handler import CSVDocumentHandler
-            self.csv_handler = CSVDocumentHandler(self)
-        return await self.csv_handler.delete_csv_row(csv_source_id, doc_id)
-           
-    async def add_csv_row(self, csv_source_id: str, doc_id: str, text: str, row_index: int, metadata: dict = None):
-        """Add a new row to a CSV document.
         
         Args:
-            See csv_handler.add_csv_row for details
+            csv_source_id: ID of the CSV source
+            doc_id: Document ID of the row to update
+            new_text: New text content for the row
+            new_metadata: Optional new metadata for the row 
+            update_metadata_index: Whether to update the metadata index
         """
-        if not hasattr(self, 'csv_handler'):
-            from .csv_handler import CSVDocumentHandler
-            self.csv_handler = CSVDocumentHandler(self)
-        return await self.csv_handler.add_csv_row(csv_source_id, doc_id, text, row_index, metadata)
-           
+        if not hasattr(self, 'text_index') or not self.text_index:
+            raise ValueError("Index not initialized.")
+            
+        try:
+            # Check if CSV source exists
+            if csv_source_id not in self.csv_docs:
+                raise ValueError(f"CSV source not found: {csv_source_id}")
+            
+            # Find the document in the index
+            node_id_to_update = None
+            for node_id, node in self.text_index.docstore.docs.items():
+                if (node.metadata.get("csv_source_id") == csv_source_id and 
+                    node.metadata.get("doc_id") == doc_id):
+                    node_id_to_update = node_id
+                    break
+            
+            if not node_id_to_update:
+                raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
+            
+            # Get the existing node to preserve metadata
+            existing_node = self.text_index.docstore.docs[node_id_to_update]
+            existing_metadata = existing_node.metadata.copy()
+            
+            # Update metadata if provided
+            if new_metadata:
+                existing_metadata.update(new_metadata)
+            
+            # Create a new document with updated text and metadata
+            updated_doc = Document(text=new_text, metadata=existing_metadata)
+            
+            # Update index atomically
+            with atomic_index_update(self):
+                # Delete the existing node
+                self.index.delete_ref_doc(node_id_to_update, delete_from_docstore=True)
+                
+                # Create metadata document if needed
+                metadata_doc = None
+                if update_metadata_index and hasattr(self, 'metadata_index') and self.metadata_index:
+                    metadata_text = self._encode_metadata_for_indexing(existing_metadata)
+                    if metadata_text.strip():
+                        metadata_doc = Document(
+                            text=metadata_text,
+                            metadata={
+                                "csv_row_id": doc_id,
+                                "csv_source_id": csv_source_id,
+                                **existing_metadata
+                            }
+                        )
+                
+                # Add the updated document
+                nodes = self.node_parser.get_nodes_from_documents([updated_doc])
+                for node in nodes:
+                    self.text_index.insert_nodes([node])
+                
+                # Update metadata index if needed
+                if metadata_doc and hasattr(self, 'metadata_index') and self.metadata_index:
+                    # Find and delete existing metadata node
+                    for meta_node_id, meta_node in self.metadata_index.docstore.docs.items():
+                        if (meta_node.metadata.get("csv_source_id") == csv_source_id and 
+                            meta_node.metadata.get("csv_row_id") == doc_id):
+                            self.metadata_index.delete_ref_doc(meta_node_id, delete_from_docstore=True)
+                            break
+                    
+                    # Add new metadata node
+                    meta_nodes = self.node_parser.get_nodes_from_documents([metadata_doc])
+                    for node in meta_nodes:
+                        self.metadata_index.insert_nodes([node])
+                
+                # Persist updates
+                self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+                if hasattr(self, 'metadata_index') and self.metadata_index:
+                    self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
+                self._clear_retriever_cache()
+            
+            logger.info(f"Updated row with document ID {doc_id} in CSV source {csv_source_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update CSV row: {str(e)}")
+            raise DocumentProcessingError(f"CSV row update failed: {str(e)}") from e
+    
+    async def delete_csv_row(self, csv_source_id: str, doc_id: str):
+        """Delete a single row from a CSV document.
+        
+        Args:
+            csv_source_id: ID of the CSV source
+            doc_id: Document ID of the row to delete
+        """
+        if not hasattr(self, 'text_index') or not self.text_index:
+            raise ValueError("Index not initialized.")
+            
+        try:
+            # Check if CSV source exists
+            if csv_source_id not in self.csv_docs:
+                raise ValueError(f"CSV source not found: {csv_source_id}")
+            
+            # Find the document in the index
+            node_id_to_delete = None
+            for node_id, node in self.text_index.docstore.docs.items():
+                if (node.metadata.get("csv_source_id") == csv_source_id and 
+                    node.metadata.get("doc_id") == doc_id):
+                    node_id_to_delete = node_id
+                    break
+            
+            if not node_id_to_delete:
+                raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
+            
+            # Update index atomically
+            with atomic_index_update(self):
+                # Delete the node
+                self.text_index.delete_ref_doc(node_id_to_delete, delete_from_docstore=True)
+                
+                # Delete from metadata index if it exists
+                if hasattr(self, 'metadata_index') and self.metadata_index:
+                    for meta_node_id, meta_node in self.metadata_index.docstore.docs.items():
+                        if (meta_node.metadata.get("csv_source_id") == csv_source_id and 
+                            meta_node.metadata.get("csv_row_id") == doc_id):
+                            self.metadata_index.delete_ref_doc(meta_node_id, delete_from_docstore=True)
+                            break
+                
+                # Persist updates
+                self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+                self._clear_retriever_cache()
+            
+            # Update CSV source metadata
+            self.csv_docs[csv_source_id]["row_count"] = self.csv_docs[csv_source_id].get("row_count", 0) - 1
+            
+            # Save the updated CSV docs index
+            with open(self.csv_docs_index_path, 'w') as f:
+                json.dump(self.csv_docs, f, indent=2)
+            
+            logger.info(f"Deleted row with document ID {doc_id} from CSV source {csv_source_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to delete CSV row: {str(e)}")
+            raise DocumentProcessingError(f"CSV row deletion failed: {str(e)}") from e
+
     def get_csv_rows(self, csv_source_id: str) -> List[Dict]:
-        """Get all rows from a CSV source using the CSV handler.
+        """Get all rows from a CSV source.
+        
+        Args:
+            csv_source_id: ID of the CSV source
+            
+        Returns:
+            List of dictionaries with row data
         """
-        if not hasattr(self, 'csv_handler'):
-            from .csv_handler import CSVDocumentHandler
-            self.csv_handler = CSVDocumentHandler(self)
-        return self.csv_handler.get_csv_rows(csv_source_id)        
+        # Add debug logging
+        logger.info(f"Getting CSV rows for source {csv_source_id}")
+        
+        if not hasattr(self, 'text_index') or not self.text_index:
+            logger.warning("No text_index available, returning empty list")
+            return []
+            
+        try:
+            # Check if CSV source exists
+            if not hasattr(self, 'csv_docs') or csv_source_id not in self.csv_docs:
+                logger.warning(f"CSV source {csv_source_id} not found in csv_docs")
+                raise ValueError(f"CSV source not found: {csv_source_id}")
+            
+            # Find all documents from this CSV source
+            rows = []
+            seen_doc_ids = set()  # Track doc_ids we've already processed
+            for node_id, node in self.index.docstore.docs.items():
+                logger.info("looking at node")
+                if node.metadata.get("csv_source_id") == csv_source_id:
+                    logger.info(f"Found node with csv_source_id {csv_source_id}: {node_id}")
+                    # Create a row object with text and metadata
+                    row = {
+                        "node_id": node_id,
+                        "text": node.text,
+                        "doc_id": node.metadata.get("doc_id", ""),
+                        "row_index": node.metadata.get("row_index", 0)
+                    }
+                    
+                    # Skip deleted rows
+                    logger.info(f"Checking if row is deleted: {node.metadata.get('is_deleted', False)}")
+                    if node.metadata.get("is_deleted", False):
+                        continue
+                        
+                    # Skip if we've already seen this doc_id to avoid duplicates
+                    doc_id = node.metadata.get("doc_id", "")
+                    if doc_id in seen_doc_ids:
+                        continue
+                    logger.info(f"Adding row with doc_id {doc_id} to results")
+                    
+                    seen_doc_ids.add(doc_id)
+                    
+                    # Add all metadata fields that start with "col_" or are in the metadata
+                    for key, value in node.metadata.items():
+                        if key.startswith("col_") or key in ["doc_id", "row_index"]:
+                            row[key] = value
+                    
+                    rows.append(row)
+                else:
+                    logger.info(f"Node {node.metadata.get('csv_source_id')} does not match csv_source_id {csv_source_id}, skipping")
+
+            logger.info(f"Found {len(rows)} rows for CSV source {csv_source_id}")
+            # Sort rows by row_index
+            rows.sort(key=lambda x: x.get("row_index", 0))
+            
+            logger.info(f"Returning {len(rows)} sorted rows")
+            return rows
+            
+        except Exception as e:
+            logger.error(f"Failed to get CSV rows: {str(e)}")
+            return []

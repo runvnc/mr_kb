@@ -37,6 +37,53 @@ async def list_knowledge_bases(request: Request):
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
+@router.post("/api/kb/{name}/csv/{source_id}/row")
+async def add_csv_row(name: str, source_id: str, request: Request):
+    """Add a new row to a CSV source"""
+    try:
+        data = await request.json()
+        new_text = data.get("text")
+        new_metadata = data.get("metadata")
+
+        if not new_text:
+            return JSONResponse({"success": False, "message": "Text is required"}, status_code=400)
+        
+        kb = await get_kb_instance(name)
+        
+        # Check if kb has CSV document support
+        if not hasattr(kb, 'csv_docs'):
+            return JSONResponse({"success": False, "message": "This knowledge base was created with an older version and doesn't support CSV documents"}, status_code=400)
+        
+        # Generate a unique document ID
+        import uuid
+        import datetime
+        
+        # Check if CSV source exists
+        if source_id not in kb.csv_docs:
+            return JSONResponse({"success": False, "message": f"CSV source not found: {source_id}"}, status_code=404)
+        
+        
+        # Create a timestamp-based ID with a UUID suffix for uniqueness
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        unique_id = f"{timestamp}-{str(uuid.uuid4())[:8]}"
+        
+        # Get the row count to determine the next row index
+        rows = kb.get_csv_rows(source_id)
+        next_row_index = len(rows) + 1
+        
+        # Add the new row
+        await kb.add_csv_row(source_id, unique_id, new_text, next_row_index, new_metadata)
+        
+        return JSONResponse({
+            "success": True,
+            "doc_id": unique_id
+        })
+    except Exception as e:
+        import traceback
+        print(f"Error adding CSV row: {str(e)}")
+        print(traceback.format_exc())
+        return JSONResponse({"success": False, "message": str(e)}, status_code=500)
+
 @router.post("/api/kb/create")
 async def create_knowledge_base(request: Request):
     """Create a new knowledge base"""
@@ -52,7 +99,6 @@ async def create_knowledge_base(request: Request):
         return JSONResponse({"success": True, "data": kb_data})
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
-
 @router.delete("/api/kb/{name}")
 async def delete_knowledge_base(name: str, request: Request):
     """Delete a knowledge base"""
@@ -522,6 +568,7 @@ async def get_csv_sources(name: str, request: Request):
 async def get_csv_rows(name: str, source_id: str, request: Request):
     """Get all rows from a CSV source"""
     try:
+        print("Getting rows!!")
         kb = await get_kb_instance(name)
         
         # Check if kb has CSV document support
@@ -529,7 +576,7 @@ async def get_csv_rows(name: str, source_id: str, request: Request):
             return JSONResponse({"success": False, 
                               "message": "This knowledge base was created with an older version and doesn't support CSV documents"}, 
                               status_code=400)
-        
+        print("loading rows")
         rows = kb.get_csv_rows(source_id)
         return JSONResponse({
             "success": True, 
@@ -551,6 +598,17 @@ async def update_csv_row(name: str, source_id: str, doc_id: str, request: Reques
         
         kb = await get_kb_instance(name)
         
+        # Check if kb has CSV document support
+        if not hasattr(kb, 'csv_docs'):
+            return JSONResponse({"success": False, 
+                              "message": "This knowledge base was created with an older version and doesn't support CSV documents"}, 
+                              status_code=400)
+        
+        # Check if CSV source exists
+        if source_id not in kb.csv_docs:
+            return JSONResponse({"success": False, "message": f"CSV source not found: {source_id}"}, status_code=404)
+        
+                
         # Check if kb has CSV document support
         if not hasattr(kb, 'csv_docs'):
             return JSONResponse({"success": False, 
@@ -906,80 +964,3 @@ async def delete_url_document(name: str, request: Request):
         return JSONResponse({"success": True})
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
-
-# Fix for process_url_with_progress and refresh_url_with_progress to handle file_path correctly
-
-# In process_url_with_progress, update the error handling to avoid referencing undefined file_path
-async def process_url_with_progress(name, url, task_id, always_include_verbatim=True):
-    """Process URL with progress tracking"""
-    try:
-        # Update task status to indicate processing has started
-        processing_tasks[task_id]["status"] = "processing"
-        processing_tasks[task_id]["progress"] = 0
-        
-        # Define progress callback
-        def progress_callback(progress):
-            processing_tasks[task_id]["progress"] = int(progress * 100)
-        
-        # Add URL to KB with progress tracking
-        result = await add_url_to_kb(name, url, always_include_verbatim)
-        
-        # Update task status to indicate completion
-        processing_tasks[task_id]["status"] = "complete"
-        processing_tasks[task_id]["progress"] = 100
-        
-        # Store the URL hash for future reference
-        if result and isinstance(result, dict):
-            url_hash = None
-            for k, v in result.items():
-                if k == "url_hash" or (k == "url" and url == v):
-                    url_hash = k
-                    break
-            if url_hash:
-                processing_tasks[task_id]["url_hash"] = url_hash
-        
-        # Schedule task cleanup after some time
-        asyncio.create_task(cleanup_task(task_id, 300))  # Clean up after 5 minutes
-        
-    except Exception as e:
-        # Print detailed error information
-        import traceback
-        print(f"Error in process_url_with_progress: {str(e)}")
-        print(traceback.format_exc())
-        
-        # Update task status to indicate error
-        processing_tasks[task_id]["status"] = "error"
-        processing_tasks[task_id]["message"] = str(e)
-
-
-# Similarly, update refresh_url_with_progress to avoid referencing undefined file_path
-async def refresh_url_with_progress(name, url_or_hash, task_id):
-    """Refresh URL with progress tracking"""
-    try:
-        # Update task status to indicate processing has started
-        processing_tasks[task_id]["status"] = "processing"
-        processing_tasks[task_id]["progress"] = 0
-        
-        # Define progress callback
-        def progress_callback(progress):
-            processing_tasks[task_id]["progress"] = int(progress * 100)
-        
-        # Refresh URL in KB with progress tracking
-        result = await refresh_url_in_kb(name, url_or_hash)
-        
-        # Update task status to indicate completion
-        processing_tasks[task_id]["status"] = "complete"
-        processing_tasks[task_id]["progress"] = 100
-        
-        # Schedule task cleanup after some time
-        asyncio.create_task(cleanup_task(task_id, 300))  # Clean up after 5 minutes
-        
-    except Exception as e:
-        # Print detailed error information
-        import traceback
-        print(f"Error in refresh_url_with_progress: {str(e)}")
-        print(traceback.format_exc())
-        
-        # Update task status to indicate error
-        processing_tasks[task_id]["status"] = "error"
-        processing_tasks[task_id]["message"] = str(e)

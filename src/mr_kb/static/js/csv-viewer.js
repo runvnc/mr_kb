@@ -6,6 +6,8 @@ class CsvViewer extends BaseEl {
     kbName: { type: String },
     sourceId: { type: String },
     rows: { type: Array },
+    addingRow: { type: Boolean },
+    newRow: { type: Object },
     columns: { type: Array },
     config: { type: Object },
     loading: { type: Boolean },
@@ -248,6 +250,7 @@ class CsvViewer extends BaseEl {
     this.error = '';
     this.editingRow = null;
     this.selectedFile = null;
+    this.addingRow = false;
   }
 
   connectedCallback() {
@@ -304,6 +307,7 @@ class CsvViewer extends BaseEl {
         <h3>
           <span>CSV Data Viewer</span>
           <div class="actions">
+            <button class="primary" @click=${this.showAddRowModal}>Add Row</button>
             <button @click=${this.refresh}>Refresh</button>
           </div>
         </h3>
@@ -376,6 +380,7 @@ class CsvViewer extends BaseEl {
       </div>
       
       ${this.editingRow ? this.renderEditModal() : ''}
+      ${this.addingRow ? this.renderAddRowModal() : ''}
     `;
   }
 
@@ -412,6 +417,54 @@ class CsvViewer extends BaseEl {
     `;
   }
 
+  renderAddRowModal() {
+    // Create a template object with empty values for a new row
+    const newRowTemplate = {
+      text: '',
+    };
+
+    // Add empty fields for all columns that start with col_
+    if (this.rows.length > 0) {
+      const sampleRow = this.rows[0];
+      for (const key in sampleRow) {
+        if (key.startsWith('col_')) {
+          newRowTemplate[key] = '';
+        }
+      }
+    }
+
+    return html`
+      <div class="modal" @click=${this.closeAddRowModal}>
+        <div class="modal-content" @click=${e => e.stopPropagation()}>
+          <div class="modal-header">
+            <h3>Add New Row</h3>
+            <button class="icon" @click=${this.closeAddRowModal}>✕</button>
+          </div>
+          
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="add-text">Text Content</label>
+              <textarea id="add-text" .value=${newRowTemplate.text} @input=${e => this.handleAddRowTextChange(e)}></textarea>
+            </div>
+            
+            ${Object.keys(newRowTemplate).filter(key => key !== 'text' && key.startsWith('col_')).map(col => html`
+              <div class="form-group">
+                <label for="add-${col}">${col}</label>
+                <input type="text" id="add-${col}" .value=${newRowTemplate[col] || ''} 
+                       @input=${e => this.handleAddRowMetadataChange(col, e.target.value)}>
+              </div>
+            `)}
+          </div>
+          
+          <div class="modal-footer">
+            <button @click=${this.closeAddRowModal}>Cancel</button>
+            <button class="primary" @click=${this.addRow}>Add Row</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   refresh() {
     this.loadData();
   }
@@ -420,8 +473,28 @@ class CsvViewer extends BaseEl {
     this.editingRow = { ...row };
   }
 
+  showAddRowModal() {
+    this.addingRow = true;
+    this.newRow = { text: '' };
+    
+    // Initialize empty fields for all columns
+    if (this.rows.length > 0) {
+      const sampleRow = this.rows[0];
+      for (const key in sampleRow) {
+        if (key.startsWith('col_')) {
+          this.newRow[key] = '';
+        }
+      }
+    }
+  }
+
   closeModal() {
     this.editingRow = null;
+  }
+
+  closeAddRowModal() {
+    this.addingRow = false;
+    this.newRow = null;
   }
 
   handleTextChange(e) {
@@ -430,6 +503,14 @@ class CsvViewer extends BaseEl {
 
   handleMetadataChange(key, value) {
     this.editingRow = { ...this.editingRow, [key]: value };
+  }
+
+  handleAddRowTextChange(e) {
+    this.newRow = { ...this.newRow, text: e.target.value };
+  }
+
+  handleAddRowMetadataChange(key, value) {
+    this.newRow = { ...this.newRow, [key]: value };
   }
 
   handleFileSelected(e) {
@@ -470,6 +551,48 @@ class CsvViewer extends BaseEl {
     } catch (error) {
       console.error('Error updating row:', error);
       this.error = error.message || 'An error occurred while updating the row';
+    }
+  }
+
+  async addRow() {
+    if (!this.newRow || !this.newRow.text) {
+      this.error = 'Text content is required';
+      return;
+    }
+    
+    this.error = '';
+    
+    try {
+      // Prepare metadata from editable columns
+      const metadata = {};
+      for (const key of Object.keys(this.newRow)) {
+        if (key.startsWith('col_')) {
+          metadata[key] = this.newRow[key];
+        }
+      }
+      
+      const response = await fetch(`/api/kb/${this.kbName}/csv/${this.sourceId}/row`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text: this.newRow.text,
+          metadata: metadata
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        this.closeAddRowModal();
+        this.loadData(); // Refresh the data
+      } else {
+        this.error = result.message || 'Failed to add row';
+      }
+    } catch (error) {
+      console.error('Error adding row:', error);
+      this.error = error.message || 'An error occurred while adding the row';
     }
   }
 

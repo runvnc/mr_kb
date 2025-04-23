@@ -14,10 +14,11 @@ setup(
         "tiktoken>=0.5.0",
         "rank_bm25>=0.2.2",
         "jsonpickle",
-        "pandas>=2.0.0",  # For Excel support
-        "openpyxl>=3.0.0",  # For Excel support
-        "python-docx>=0.8.11",  # For Word support
-        "PyPDF2>=3.0.0",  # For PDF support
+        "pandas>=2.0.0",
+        "openpyxl>=3.0.0",
+        "python-docx>=0.8.11",
+        "PyPDF2>=3.0.0",
+        "llama-index-vector-stores-chroma"
     ],
     package_data={
         "mr_kb": [

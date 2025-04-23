@@ -30,26 +30,6 @@ from llama_index.core.instrumentation.event_handlers import BaseEventHandler
 import traceback
 import jsonpickle
 import hashlib
-from llama_index.embeddings.openai import OpenAIEmbedding
-from llama_index.core.node_parser import SimpleNodeParser
-
-
-embedding_call_count = 0
-
-from llama_index.core import Settings
-
-Settings.embed_model = OpenAIEmbedding(
-    model="text-embedding-3-small", embed_batch_size=100
-)
-original_get_text_embedding = OpenAIEmbedding.get_text_embedding
-
-def count_embedding_calls(self, text):
-    global embedding_call_count
-    embedding_call_count += 1
-    logger.info(f"Embedding API call #{embedding_call_count}")
-    return original_get_text_embedding(self, text)
-
-OpenAIEmbedding.get_text_embedding = count_embedding_calls
 
 dispatcher = instrument.get_dispatcher(__name__)
 class RetrievalEventHandler(BaseEventHandler):
@@ -77,8 +57,6 @@ def get_file_handlers(supported_types: Dict[str, bool]) -> Dict[str, callable]:
 @contextmanager
 def atomic_index_update(kb_instance: 'HierarchicalKnowledgeBase'):
     """Context manager for atomic index updates with rollback capability."""
-    logger.info("Called atomic index update, ignoring")
-    return
     # Create backup of persist_dir if it exists
     backup_dir = None
     if os.path.exists(kb_instance.persist_dir):
@@ -177,12 +155,8 @@ class HierarchicalKnowledgeBase:
         
         # Configure embedding model        # Configure embedding model
         if embedding_model is None or embedding_model.lower() in ['openai', 'default']:
-            self.embed_model = OpenAIEmbedding(
-                model="text-embedding-3-small",
-                embed_batch_size=100
-            )
+            self.embed_model = None  # LlamaIndex will use OpenAI default
         else:
-            raise ValueError(f"Unsupported embedding model: {embedding_model}")
             # Assume it's a HuggingFace model name
             from llama_index.embeddings import HuggingFaceEmbedding
             self.embed_model = HuggingFaceEmbedding(model_name=embedding_model)
@@ -190,12 +164,7 @@ class HierarchicalKnowledgeBase:
         self.node_parser = HierarchicalNodeParser.from_defaults(
             chunk_sizes=chunk_sizes
         )
-
-        self.simple_node_parser = SimpleNodeParser.from_defaults(
-            chunk_size=100000,  # Very large to avoid chunking
-            chunk_overlap=0     # No overlap needed
-        )
-
+        
         self.index = None
         self.text_index = None
         self.metadata_index = None
@@ -277,8 +246,6 @@ class HierarchicalKnowledgeBase:
             self._setup_vector_stores()
             # Load ChromaDB indices
             self.text_index = VectorStoreIndex.from_vector_store(self.text_vector_store, embed_model=self.embed_model)
-            # metadata
-            self.metadata_index = VectorStoreIndex.from_vector_store(self.metadata_vector_store, embed_model=self.embed_model)
             self.index = self.text_index  # For backward compatibility
             return True
         
@@ -391,68 +358,71 @@ class HierarchicalKnowledgeBase:
 
             if skip_if_exists and self.load_if_exists():
                 # If we loaded an existing index, just refresh it with the new documents
-                print("Using existing index ADD_DOCUMENT in KB")
+                print("Using existing index")
                 self.text_index.refresh_ref_docs(documents)
                 self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
                 self._clear_retriever_cache()
 
                 return self.index
  
-            # Set up vector stores if not already done
-            if not hasattr(self, 'text_vector_store') or not self.text_vector_store:
-                self._setup_vector_stores()
-            
-            # Create storage contexts
-            text_storage_context = StorageContext.from_defaults(vector_store=self.text_vector_store)
-            metadata_storage_context = StorageContext.from_defaults(vector_store=self.metadata_vector_store)
-            
-            # Create text index
-            self.text_index = VectorStoreIndex(
-                all_nodes,
-                storage_context=text_storage_context,
-                embed_model=self.embed_model
-            )
-            
-            # Create metadata documents and index
-            metadata_documents = []
-            for node in all_nodes:
-                metadata_text = self._encode_metadata_for_indexing(node.metadata)
-                if metadata_text.strip():
-                    metadata_doc = Document(
-                        text=metadata_text,
-                        metadata={
-                            "source_node_id": node.id_,
-                            **node.metadata
-                        }
-                    )
-                    metadata_documents.append(metadata_doc)
-            
-            if metadata_documents:
-                metadata_nodes = self.node_parser.get_nodes_from_documents(metadata_documents)
-                self.metadata_index = VectorStoreIndex(
-                    metadata_nodes,
-                    storage_context=metadata_storage_context,
+
+            # Create a new index with ChromaDB
+            with atomic_index_update(self):
+                # Set up vector stores if not already done
+                if not hasattr(self, 'text_vector_store') or not self.text_vector_store:
+                    self._setup_vector_stores()
+                
+                # Create storage contexts
+                text_storage_context = StorageContext.from_defaults(vector_store=self.text_vector_store)
+                metadata_storage_context = StorageContext.from_defaults(vector_store=self.metadata_vector_store)
+                
+                # Create text index
+                self.text_index = VectorStoreIndex(
+                    all_nodes,
+                    storage_context=text_storage_context,
                     embed_model=self.embed_model
                 )
-            
-            # For backward compatibility, set index to text_index
-            self.index = self.text_index
-            
-            # Add old documents if migrating
-            if old_documents:
-                logger.info(f"Adding {len(old_documents)} documents from old index")
-                self.text_index.refresh_ref_docs(old_documents)
-            
-            # Persist indices
-            self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
-            if hasattr(self, 'metadata_index') and self.metadata_index:
-                self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
-            
-            # Initialize CSV handler
-            from .csv_handler import CSVDocumentHandler
-            self.csv_handler = CSVDocumentHandler(self)
-            
-            self._clear_retriever_cache()
+                
+                # Create metadata documents and index
+                metadata_documents = []
+                for node in all_nodes:
+                    metadata_text = self._encode_metadata_for_indexing(node.metadata)
+                    if metadata_text.strip():
+                        metadata_doc = Document(
+                            text=metadata_text,
+                            metadata={
+                                "source_node_id": node.id_,
+                                **node.metadata
+                            }
+                        )
+                        metadata_documents.append(metadata_doc)
+                
+                if metadata_documents:
+                    metadata_nodes = self.node_parser.get_nodes_from_documents(metadata_documents)
+                    self.metadata_index = VectorStoreIndex(
+                        metadata_nodes,
+                        storage_context=metadata_storage_context,
+                        embed_model=self.embed_model
+                    )
+                
+                # For backward compatibility, set index to text_index
+                self.index = self.text_index
+                
+                # Add old documents if migrating
+                if old_documents:
+                    logger.info(f"Adding {len(old_documents)} documents from old index")
+                    self.text_index.refresh_ref_docs(old_documents)
+                
+                # Persist indices
+                self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+                if hasattr(self, 'metadata_index') and self.metadata_index:
+                    self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
+                
+                # Initialize CSV handler
+                from .csv_handler import CSVDocumentHandler
+                self.csv_handler = CSVDocumentHandler(self)
+                
+                self._clear_retriever_cache()
         except Exception as e:
             logger.error(f"Failed to create index: {str(e)}")
             raise DocumentProcessingError(f"Index creation failed: {str(e)}\n{traceback.format_exc()}") from e
@@ -588,18 +558,21 @@ class HierarchicalKnowledgeBase:
             if metadata_documents:
                 metadata_nodes = self.node_parser.get_nodes_from_documents(metadata_documents)
                 
-            self.text_index.insert_nodes(all_node)
+            with atomic_index_update(self):
+                for node in all_nodes:
+                    self.text_index.insert_nodes([node])
+                    
+                # Add metadata nodes if available
+                if hasattr(self, 'metadata_index') and self.metadata_index and metadata_nodes:
+                    for node in metadata_nodes:
+                        self.metadata_index.insert_nodes([node])
                 
-            # Add metadata nodes if available
-            if hasattr(self, 'metadata_index') and self.metadata_index and metadata_nodes:
-                self.metadata_index.insert_nodes(metadata_nodes)
-            
-            # Persist indices
-            self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
-            if hasattr(self, 'metadata_index') and self.metadata_index:
-                self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
-            
-            self._clear_retriever_cache()
+                # Persist indices
+                self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+                if hasattr(self, 'metadata_index') and self.metadata_index:
+                    self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
+                
+                self._clear_retriever_cache()
                 
         except Exception as e:
             logger.error(f"Failed to add document: {str(e)}")
@@ -872,37 +845,37 @@ class HierarchicalKnowledgeBase:
             if len(nodes_to_remove) == 0:
                 raise ValueError(f"No docs found for document: {file_path}")
 
-            for doc_id in nodes_to_remove:
-                self.text_index.delete_ref_doc(doc_id, delete_from_docstore=True, delete_from_vectorstore=remove_from_chroma)
-                print("Deleted doc: ", doc_id)
-                
-                # Also remove from metadata index if it exists
-                if remove_from_metadata_index and hasattr(self, 'metadata_index') and self.metadata_index:
-                    # Find and delete corresponding metadata nodes
-                    meta_nodes_to_remove = []
-                    for meta_node_id, meta_node in self.metadata_index.docstore.docs.items():
-                        if meta_node.metadata.get("file_path") == file_path:
-                            meta_nodes_to_remove.append(meta_node_id)
+            with atomic_index_update(self):
+                for doc_id in nodes_to_remove:
+                    self.text_index.delete_ref_doc(doc_id, delete_from_docstore=True, delete_from_vectorstore=remove_from_chroma)
+                    print("Deleted doc: ", doc_id)
                     
-                    for meta_node_id in meta_nodes_to_remove:
-                        self.metadata_index.delete_ref_doc(meta_node_id, delete_from_docstore=True, delete_from_vectorstore=remove_from_chroma)
-                        print(f"Deleted metadata node: {meta_node_id}")
-            
-            # Persist updates
-            self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
-            self.text_index.docstore.persist()
-            
-            # Persist metadata index if it exists
-            if hasattr(self, 'metadata_index') and self.metadata_index:
-                self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
-                self.metadata_index.docstore.persist()
+                    # Also remove from metadata index if it exists
+                    if remove_from_metadata_index and hasattr(self, 'metadata_index') and self.metadata_index:
+                        # Find and delete corresponding metadata nodes
+                        meta_nodes_to_remove = []
+                        for meta_node_id, meta_node in self.metadata_index.docstore.docs.items():
+                            if meta_node.metadata.get("file_path") == file_path:
+                                meta_nodes_to_remove.append(meta_node_id)
+                        
+                        for meta_node_id in meta_nodes_to_remove:
+                            self.metadata_index.delete_ref_doc(meta_node_id, delete_from_docstore=True, delete_from_vectorstore=remove_from_chroma)
+                            print(f"Deleted metadata node: {meta_node_id}")
+                
+                # Persist updates
+                self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+                self.text_index.docstore.persist()
+                
+                # Persist metadata index if it exists
+                if hasattr(self, 'metadata_index') and self.metadata_index:
+                    self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
+                    self.metadata_index.docstore.persist()
 
-            print("Saved docstore")
-            self._clear_retriever_cache()
+                print("Saved docstore")
+                self._clear_retriever_cache()
         except Exception as e:
             logger.error(f"Failed to remove document: {str(e)}")
             raise DocumentProcessingError(f"Document removal failed: {str(e)}. {traceback.format_exc()}") from e 
-            
     async def remove_verbatim_document(self, file_path: str):
         """Remove a verbatim document.
         
@@ -1305,7 +1278,6 @@ class HierarchicalKnowledgeBase:
         if not hasattr(self, 'csv_handler'):
             from .csv_handler import CSVDocumentHandler
             self.csv_handler = CSVDocumentHandler(self)
-        embedding_call_count = 0
         return await self.csv_handler.add_csv_document(file_path, config, progress_callback)
 
     # Initialize CSV handler in __init__ method
@@ -1339,17 +1311,6 @@ class HierarchicalKnowledgeBase:
             from .csv_handler import CSVDocumentHandler
             self.csv_handler = CSVDocumentHandler(self)
         return await self.csv_handler.delete_csv_row(csv_source_id, doc_id)
-           
-    async def add_csv_row(self, csv_source_id: str, doc_id: str, text: str, row_index: int, metadata: dict = None):
-        """Add a new row to a CSV document.
-        
-        Args:
-            See csv_handler.add_csv_row for details
-        """
-        if not hasattr(self, 'csv_handler'):
-            from .csv_handler import CSVDocumentHandler
-            self.csv_handler = CSVDocumentHandler(self)
-        return await self.csv_handler.add_csv_row(csv_source_id, doc_id, text, row_index, metadata)
            
     def get_csv_rows(self, csv_source_id: str) -> List[Dict]:
         """Get all rows from a CSV source using the CSV handler.

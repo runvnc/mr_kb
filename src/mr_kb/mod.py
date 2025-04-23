@@ -103,6 +103,21 @@ async def add_to_kb(name: str, file_path: str):
     await kb.add_document(file_path)
 
 @service()
+async def add_csv_to_kb(name: str, file_path: str, config: dict):
+    """Add a CSV document to specified KB
+    
+    Args:
+        name: Name of the knowledge base
+        file_path: Path to the CSV file
+        config: Configuration for CSV parsing
+        
+    Returns:
+        Dict with CSV document information
+    """
+    kb = await get_kb_instance(name)
+    return await kb.csv_handler.add_csv_document(file_path, config)
+
+@service()
 async def add_url_to_kb(name: str, url: str, always_include_verbatim: bool = True):
     """Add content from a URL to a knowledge base
     
@@ -139,7 +154,6 @@ async def refresh_url_in_kb(name: str, url_or_hash: str):
         url_hash = url_or_hash
         
     return await kb.refresh_url_document(url_hash)
-
 @command()
 async def query_kb(kb_name: str, match_text: str, context=None):
     """Query a specific knowledge base
@@ -165,7 +179,37 @@ async def query_kb(kb_name: str, match_text: str, context=None):
     text, stats = await kb.get_relevant_context(
         match_text,
         similarity_top_k=15,
-        final_top_k=15
+        final_top_k=15,
+        search_metadata=True
+    )
+    return text
+
+
+@command()
+async def query_kb_metadata(kb_name: str, match_text: str, top_k: int = 3, context=None):
+    """Query a knowledge base using only metadata fields
+    
+    This command searches only in document metadata (like titles, IDs, etc.) 
+    and returns full documents that match the metadata search.
+    
+    Params:
+        kb_name - String. The name of the knowledgebase to search
+        match_text - String. Text to match against document metadata
+        top_k - Integer. Number of top results to return (default: 3)
+    
+    This is particularly useful for finding CSV rows by their document ID or other
+    metadata fields without searching the main content.
+    
+    Example:
+    { "query_kb_metadata": { "kb_name": "articles", "match_text": "DOC-12345", "top_k": 1 } }
+    """
+    kb = await get_kb_instance(kb_name)
+    text, stats = await kb.get_relevant_context(
+        match_text,
+        similarity_top_k=top_k * 2,  # Request more initially for better filtering
+        final_top_k=top_k,
+        search_metadata=True,
+        metadata_only=True  # Only search metadata index
     )
     return text
 
@@ -183,18 +227,7 @@ async def add_to_kb_cmd(name: str, file_path: str, context=None):
 
 @command()
 async def add_url_to_kb_cmd(name: str, url: str, context=None):
-    """Add content from a URL to a knowledge base
-    
-    Args:
-        name: The name of the knowledge base to add to
-        url: The URL to fetch and extract content from
-        
-    Returns:
-        str: Confirmation message with URL added
-        
-    Example:
-        { "add_url_to_kb_cmd": { "name": "general", "url": "https://www.example.com/article" } }
-    """
+    """Add content from a URL to a knowledge base"""
     try:
         result = await add_url_to_kb(name, url)
         return f"Added content from {url} to knowledge base '{name}'"
@@ -268,7 +301,8 @@ async def enrich_with_kb(data: dict, context=None) -> dict:
                     query_text, 
                     similarity_top_k=19,
                     final_top_k=15,
-                    include_verbatim=False  # Don't include verbatim docs in regular results
+                    include_verbatim=False,  # Don't include verbatim docs in regular results
+                    search_metadata=True      # Search metadata index as well
                 )
                 # get_relevant_context returns a tuple or just a string - handle both cases
                 if isinstance(context_data, tuple):
