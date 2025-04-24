@@ -1096,7 +1096,10 @@ class HierarchicalKnowledgeBase:
                         # Find the corresponding text node
                         logger.info(f"found metadata node node.node.metadata = {node.node.metadata}")
                         source_node_id = node.node.metadata.get("source_node_id")
+                        if source_node_id is None:
+                            source_node_id = node.node.metadata.get("csv_row_id")
                         logger.info("trying to find in docstore")
+                        logger.info(f"docstore.docs: {self.text_index.docstore.docs.keys()}")
                         if source_node_id and source_node_id in self.text_index.docstore.docs:
                             logger.info(f"Found source node ID: {source_node_id}")
                             text_node = self.text_index.docstore.docs[source_node_id]
@@ -1104,16 +1107,18 @@ class HierarchicalKnowledgeBase:
                                                   text_node.metadata,
                                                   node.score,  # Use metadata match score
                                                   len(text_node.text)))
-                        elif "file_path" in node.node.metadata:
-                            logger.info(f"Found file_path in metadata node: {node.node.metadata['file_path']}")
-                            # If we can't find the source node, use the metadata node itself
-                            # This can happen if the metadata node was created separately
-                            metadata_results.append((node.node.text, 
-                                                  node.node.metadata,
-                                                  node.score,
-                                                  len(node.node.text)))
                         else:
-                            logger.warning(f"Source node ID not found in text index: {source_node_id}")
+                            csv_source_id = node.node.metadata.get("csv_source_id")
+                            source_node_id = node.node.metadata.get("csv_row_id")
+                            safe_source_id = re.sub(r'[^\w\-\.]', '_', csv_source_id)  # Make filename safe
+                            logger.info(f"Searching in text collection with safe_source_id: {safe_source_id} and node ID: {source_node_id}")
+                            res = self.text_collection.get(where={"csv_row_id": source_node_id})
+                            if len(res) > 0:
+                                logger.info(f"results: {res} source_node_id: {source_node_id} safe_source_id: {safe_source_id}")
+                                metadata_results.append((res["documents"][0], 
+                                                        res["metadatas"][0],
+                                                        node.score,
+                                                        len(res["documents"][0]) )) 
                     else:
                         logger.warning(f"Metadata node score {node.score} below threshold {min_score}")
 
