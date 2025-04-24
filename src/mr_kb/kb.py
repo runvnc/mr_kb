@@ -1080,31 +1080,43 @@ class HierarchicalKnowledgeBase:
                         node.score,
                         len(node.node.text)) for node in text_nodes]
                 text_results = [r for r in text_results if r[2] >= min_score]
-            
+            logger.info(f"metadata_only = {metadata_only} text_results = {text_results}")
             # Get results from metadata index if requested
             if search_metadata and hasattr(self, 'metadata_index') and self.metadata_index:
                 metadata_retriever = self.metadata_index.as_retriever(similarity_top_k=similarity_top_k)
+                logger.info(f"metadata_only = {metadata_only} metadata_retriever = {metadata_retriever}")
+                logger.info(f"query_text = {query_text} similarity_top_k = {similarity_top_k} min_score = {min_score}")
                 metadata_nodes = await metadata_retriever.aretrieve(query_text)
-                
+                logger.info(f"metadata_nodes = {metadata_nodes}")
                 # Process metadata results
                 for node in metadata_nodes:
+                    logger.info(f"node = {node}")
+                    logger.info(f"score = {node.score} min_score = {min_score}")
                     if node.score >= min_score:
                         # Find the corresponding text node
+                        logger.info(f"found metadata node node.node.metadata = {node.node.metadata}")
                         source_node_id = node.node.metadata.get("source_node_id")
+                        logger.info("trying to find in docstore")
                         if source_node_id and source_node_id in self.text_index.docstore.docs:
+                            logger.info(f"Found source node ID: {source_node_id}")
                             text_node = self.text_index.docstore.docs[source_node_id]
                             metadata_results.append((text_node.text, 
                                                   text_node.metadata,
                                                   node.score,  # Use metadata match score
                                                   len(text_node.text)))
                         elif "file_path" in node.node.metadata:
+                            logger.info(f"Found file_path in metadata node: {node.node.metadata['file_path']}")
                             # If we can't find the source node, use the metadata node itself
                             # This can happen if the metadata node was created separately
                             metadata_results.append((node.node.text, 
                                                   node.node.metadata,
                                                   node.score,
                                                   len(node.node.text)))
-            
+                        else:
+                            logger.warning(f"Source node ID not found in text index: {source_node_id}")
+                    else:
+                        logger.warning(f"Metadata node score {node.score} below threshold {min_score}")
+
             retriever_end = datetime.datetime.now()
             print(f"Total retriever setup time: {retriever_end - retriever_start}")
             
@@ -1118,9 +1130,12 @@ class HierarchicalKnowledgeBase:
                     seen_texts.add(result[0])
              
             # Apply enhanced keyword matching and filtering
-            enhanced_results = enhance_search_results(query_text, combined_results, 
-                                                    initial_top_k=similarity_top_k,
-                                                    final_top_k=final_top_k)
+            if metadata_only:
+                enhanced_results = metadata_results
+            else:
+                enhanced_results = enhance_search_results(query_text, combined_results, 
+                                                          initial_top_k=similarity_top_k,
+                                                          final_top_k=final_top_k)
             
             # Add verbatim documents if available
             if verbatim_results:
@@ -1132,6 +1147,7 @@ class HierarchicalKnowledgeBase:
                 # This ensures all verbatim docs are included plus up to final_top_k regular results
                 return combined_results[:len(verbatim_results) + final_top_k]
            
+            logger.info(f"Final retrieval results: {len(enhanced_results)}")
             return enhanced_results
             
         except Exception as e:

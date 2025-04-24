@@ -585,6 +585,30 @@ async def get_csv_rows(name: str, source_id: str, request: Request):
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
+@router.get("/api/kb/{name}/csv/{source_id}/search")
+async def search_csv_rows(name: str, source_id: str, query: str = "", limit: int = 10, request: Request = None):
+    """Search for CSV rows that match a query"""
+    try:
+        kb = await get_kb_instance(name)
+        
+        # Check if kb has CSV document support
+        if not hasattr(kb, 'csv_docs'):
+            return JSONResponse({"success": False, 
+                              "message": "This knowledge base was created with an older version and doesn't support CSV documents"}, 
+                              status_code=400)
+        
+        # If query is empty, return a limited number of rows
+        if not query.strip():
+            rows = kb.get_csv_rows(source_id)[:limit]
+        else:
+            rows = await kb.csv_handler.search_csv_rows(source_id, query, limit)
+            
+        return JSONResponse({
+            "success": True, 
+            "data": rows
+        })
+    except Exception as e:
+        return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 @router.post("/api/kb/{name}/csv/{source_id}/row/{doc_id}")
 async def update_csv_row(name: str, source_id: str, doc_id: str, request: Request):
     """Update a single row in a CSV source"""

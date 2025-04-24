@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import re
 import datetime
 import re
 from llama_index.core.indices import VectorStoreIndex
@@ -46,8 +47,12 @@ class CSVDocumentHandler:
         metadata_text = ""
         for key, value in metadata.items():
             # Skip internal fields
-            if key in ['is_deleted', 'is_csv_row', '_node_content']:
+            is_column = key.startswith("col_")
+            is_id = key in ["csv_row_id"]
+            if not (is_column or is_id):
                 continue
+            #if key in ['is_deleted', 'is_csv_row', '_node_content']:
+            #    continue
             metadata_text += f"{key}: {value} "
         return metadata_text
 
@@ -176,6 +181,7 @@ class CSVDocumentHandler:
                     # Create document for text index
                     doc = Document(text=text, metadata=metadata)
                     documents.append(doc)
+                    nodes = self.kb.simple_node_parser.get_nodes_from_documents([doc])
                     
                     # Create document for metadata index
                     metadata_text = self._encode_metadata_for_indexing(metadata)
@@ -184,6 +190,7 @@ class CSVDocumentHandler:
                             text=metadata_text,
                             metadata={
                                 "csv_row_id": doc_id,
+                               "source_node_id": nodes[0].id_ if nodes else None,
                                 "csv_source_id": safe_source_id,
                                 **metadata
                             }
@@ -295,6 +302,7 @@ class CSVDocumentHandler:
             # Add the updated document
             nodes = self.kb.node_parser.get_nodes_from_documents([updated_doc])
             logger.info(f"Adding updated document with ID {node_id_to_update}")
+            node_id = nodes[0].id_ if nodes else None
             Settings.chunk_size = 1024
             self.kb.text_index.insert_nodes(nodes)
             logger.info(f"Inserted updated document with ID {node_id_to_update}")
@@ -328,6 +336,7 @@ class CSVDocumentHandler:
                     metadata={
                         "csv_row_id": csv_row_id,
                         "csv_source_id": csv_source_id,
+                        "source_node_id": node_id,
                         **existing_metadata
                     }
                 )
@@ -482,6 +491,7 @@ class CSVDocumentHandler:
                     text=metadata_text,
                     metadata={
                         "csv_row_id": doc_id,
+                        "source_node_id": node_id,
                         "csv_source_id": csv_source_id,
                         **row_metadata
                     }
@@ -489,6 +499,7 @@ class CSVDocumentHandler:
             
             # Add the new document
             nodes = self.kb.node_parser.get_nodes_from_documents([doc])
+            node_id = nodes[0].id_ if nodes else None
             self.kb.text_index.insert_nodes(nodes)
             
             # Add metadata document if available
@@ -737,6 +748,7 @@ class CSVDocumentHandler:
                             text=metadata_text,
                             metadata={
                                 "csv_row_id": doc_id,
+                               "source_node_id": nodes[0].id_ if nodes else None,
                                 "csv_source_id": safe_source_id,
                                 **metadata
                             }
@@ -847,3 +859,90 @@ class CSVDocumentHandler:
             logger.error(f"Failed to sync CSV document: {str(e)}")
             from .kb import DocumentProcessingError
             raise DocumentProcessingError(f"CSV document sync failed: {str(e)}") from e
+
+    async def search_csv_rows(self, csv_source_id: str, query_text: str, limit: int = 10):
+        """Search for CSV rows that match a query using vector similarity.
+        
+        Args:
+            csv_source_id: ID of the CSV source
+            query_text: Text to search for
+            limit: Maximum number of results to return
+            
+        Returns:
+            List of dictionaries with row data, sorted by relevance
+        """
+        if not hasattr(self.kb, 'text_index') or not self.kb.text_index:
+            logger.warning("No text_index available, returning empty list")
+            return []
+            
+        try:
+            # Check if CSV source exists
+            if not hasattr(self, 'csv_docs') or csv_source_id not in self.csv_docs:
+                logger.warning(f"CSV source {csv_source_id} not found in csv_docs")
+                raise ValueError(f"CSV source not found: {csv_source_id}")
+            
+            logger.info(f"Searching CSV rows for source {csv_source_id} with query: {query_text}")
+            # Use the KB's retrieve_relevant_nodes method to search
+            results = await self.kb.retrieve_relevant_nodes(
+                query_text,
+                similarity_top_k=limit * 2,  # Request more initially for better filtering
+                final_top_k=limit * 2,
+                min_score=0.0,  # Don't filter by score, we'll take the top N results
+                include_verbatim=False,
+                search_metadata=True,
+                metadata_only=True  # Only search metadata index
+            )
+            
+            # Filter results to only include rows from this CSV source
+            csv_results = []
+            seen_doc_ids = set()  # Track doc_ids we've already processed
+            text_nodes = {}
+            
+            for text, metadata, score, chunk_size in results:
+                # Check if this result is from the requested CSV source
+                if metadata.get("csv_source_id") == csv_source_id:
+                    # Skip deleted rows
+                    if metadata.get("is_deleted", False):
+                        continue
+                        
+                    # Skip if we've already seen this doc_id to avoid duplicates
+                    csv_doc_id = metadata.get("doc_id", "")
+                    if csv_doc_id in seen_doc_ids:
+                        continue
+                    seen_doc_ids.add(csv_doc_id)
+                    
+                    # For metadata search results, we need to find the actual text
+                    # from the text index if the text is empty or contains metadata
+                    actual_text = text
+                    if not text or text.startswith("col_") or ":".join(metadata.keys()) in text:
+                        # Try to find the corresponding text node in the cache
+                        if not text_nodes and hasattr(self.kb, 'text_index'):
+                            # Cache all text nodes for this CSV source for faster lookup
+                            for node_id, node in self.kb.text_index.docstore.docs.items():
+                                if node.metadata.get("csv_source_id") == csv_source_id:
+                                    text_nodes[node.metadata.get("doc_id", "")] = node.text
+                        
+                        # Look up the text from the cache
+                        if csv_doc_id in text_nodes:
+                            actual_text = text_nodes[csv_doc_id]
+                    
+                    # Create a row object with text and metadata
+                    row = {
+                        "node_id": metadata.get("node_id", ""),
+                        "text": actual_text,
+                        "doc_id": csv_doc_id,
+                        "row_index": metadata.get("row_index", 0)
+                    }
+                    
+                    # Add all metadata fields that start with "col_" or are in the metadata
+                    for key, value in metadata.items():
+                        if key.startswith("col_") or key in ["doc_id", "row_index"]:
+                            row[key] = value
+                    
+                    csv_results.append(row)
+            
+            return csv_results
+            
+        except Exception as e:
+            logger.error(f"Failed to search CSV rows: {str(e)}")
+            return []

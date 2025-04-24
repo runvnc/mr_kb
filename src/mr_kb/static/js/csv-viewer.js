@@ -13,7 +13,11 @@ class CsvViewer extends BaseEl {
     loading: { type: Boolean },
     error: { type: String },
     editingRow: { type: Object },
-    selectedFile: { type: Object }
+    selectedFile: { type: Object },
+    searchQuery: { type: String },
+    searchMode: { type: Boolean },
+    searchTimeout: { type: Object },
+    searchInProgress: { type: Boolean }
   };
 
   static styles = css`
@@ -108,6 +112,56 @@ class CsvViewer extends BaseEl {
       display: inline-flex;
       align-items: center;
       justify-content: center;
+    }
+
+    .search-status {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      margin-bottom: 0.5rem;
+      background: rgba(74, 158, 255, 0.1);
+      border: 1px solid rgba(74, 158, 255, 0.3);
+      border-radius: 4px;
+      font-style: italic;
+    }
+
+    .search-container {
+      display: flex;
+      align-items: center;
+      margin-bottom: 1rem;
+      gap: 0.5rem;
+    }
+
+    .search-input {
+      flex: 1;
+      padding: 0.5rem;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(0, 0, 0, 0.2);
+      color: var(--component-text, var(--text-color));
+      font-family: inherit;
+    }
+
+    .search-input::placeholder {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-left: 1rem;
+    }
+
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 20px;
+    }
+
+    .toggle-label {
+      font-size: 0.9rem;
+      opacity: 0.8;
     }
 
     .error {
@@ -251,20 +305,78 @@ class CsvViewer extends BaseEl {
     this.editingRow = null;
     this.selectedFile = null;
     this.addingRow = false;
+    this.searchQuery = '';
+    this.searchMode = true; // Default to search mode
+    this.searchInProgress = false;
+    this.searchTimeout = null;
   }
 
   connectedCallback() {
     super.connectedCallback();
     if (this.kbName && this.sourceId) {
-      this.loadData();
+      if (this.searchMode) {
+        this.searchRows(''); // Use search with empty query to get limited rows
+      } else {
+        this.loadData(); // Load all rows
+      }
     }
   }
 
   updated(changedProperties) {
     if (changedProperties.has('kbName') || changedProperties.has('sourceId')) {
       if (this.kbName && this.sourceId) {
-        this.loadData();
+        if (this.searchMode) {
+          this.searchRows(''); // Use search with empty query to get limited rows
+        } else {
+          this.loadData(); // Load all rows
+        }
       }
+    }
+  }
+
+  async searchRows(query) {
+    // Don't show full loading state for search to avoid disrupting typing
+    const searchElement = this.shadowRoot?.querySelector('.search-input');
+    const searchHasFocus = searchElement === document.activeElement;
+    
+    // Set search in progress flag but don't show full loading state
+    this.searchInProgress = true;
+    
+    // Keep the current loading state if already loading
+    const wasLoading = this.loading;
+    
+    // Don't show loading indicator during search to avoid disrupting typing
+    this.error = '';
+    const oldRows = [...this.rows]; // Save current rows in case of error
+    
+    try {
+      const url = new URL(`/api/kb/${this.kbName}/csv/${this.sourceId}/search`, window.location.origin);
+      url.searchParams.append('query', query);
+      url.searchParams.append('limit', '50'); // Reasonable default limit
+      
+      const response = await fetch(url);
+      const result = await response.json();
+      
+      if (result.success) {
+        this.rows = result.data;
+        
+        // Extract columns from the first row if we have results
+        if (this.rows.length > 0) {
+          this.columns = Object.keys(this.rows[0]).filter(key => 
+            key.startsWith('col_') || key === 'doc_id' || key === 'text'
+          );
+        }
+      } else {
+        this.error = result.message || 'Failed to search CSV rows';
+      }
+    } catch (error) {
+      console.error('Error searching CSV data:', error);
+      this.error = error.message || 'An error occurred while searching the CSV data';
+    } finally {
+      // Reset search in progress flag
+      this.searchInProgress = false;
+      // Keep loading state as it was
+      this.loading = wasLoading;
     }
   }
 
@@ -273,9 +385,9 @@ class CsvViewer extends BaseEl {
     this.error = '';
     
     try {
-      // Load rows
+      // If in search mode with a query, use search endpoint, otherwise load all rows
       const response = await fetch(`/api/kb/${this.kbName}/csv/${this.sourceId}/rows`);
-      const result = await response.json();
+      const result = await response.json();      
       
       if (result.success) {
         this.rows = result.data;
@@ -298,9 +410,43 @@ class CsvViewer extends BaseEl {
   }
 
   render() {
-    if (this.loading) {
+    if (this.loading && !this.searchInProgress) {
       return html`<div class="loading">Loading CSV data...</div>`;
     }
+
+    const handleSearchInput = (e) => {
+      const query = e.target.value;
+      this.searchQuery = query;
+      
+      // Clear any existing timeout
+      this.searchInProgress = false;
+      if (this.searchTimeout) {
+        clearTimeout(this.searchTimeout);
+      }
+      
+      // Set a new timeout for debouncing
+      this.searchTimeout = setTimeout(() => {
+        if (this.searchMode) {
+          this.searchInProgress = true;
+          this.searchRows(query);
+        }
+      }, 300); // 300ms debounce delay
+    };
+    
+    const toggleSearchMode = () => {
+      // Toggle search mode
+      this.searchInProgress = false;
+      this.searchMode = !this.searchMode;
+      
+      // Update the UI based on the new mode
+      if (this.searchMode) {
+        this.searchRows(this.searchQuery || ''); // Use current query or empty string
+      } else {
+        this.loadData(); // Show all rows
+      }
+    };
+
+    const isSearching = this.searchInProgress;
 
     return html`
       <div class="csv-viewer">
@@ -313,6 +459,23 @@ class CsvViewer extends BaseEl {
         </h3>
         
         ${this.error ? html`<div class="error">${this.error}</div>` : ''}
+        
+        ${isSearching ? html`<div class="search-status">Searching...</div>` : ''}
+        <div class="search-container">
+          <input 
+            type="text" 
+            class="search-input" 
+            placeholder="Search by metadata or content..." 
+            .value=${this.searchQuery}
+            @input=${handleSearchInput}
+          />
+          <div class="toggle-container">
+            <span class="toggle-label">${this.searchMode ? 'Search Mode' : 'Show All'}</span>
+            <button @click=${toggleSearchMode}>
+              Switch to ${this.searchMode ? 'Show All Mode' : 'Search Mode'}
+            </button>
+          </div>
+        </div>
         
         ${this.rows.length > 0 ? html`
           <div class="stats">
