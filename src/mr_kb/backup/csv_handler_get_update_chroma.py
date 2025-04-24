@@ -5,7 +5,6 @@ import datetime
 import re
 from llama_index.core.indices import VectorStoreIndex
 from typing import Dict, List, Optional, Callable
-from llama_index.core import Settings
 
 from llama_index.core import Document
 from contextlib import contextmanager
@@ -46,7 +45,7 @@ class CSVDocumentHandler:
         metadata_text = ""
         for key, value in metadata.items():
             # Skip internal fields
-            if key in ['is_deleted', 'is_csv_row', '_node_content']:
+            if key in ['is_deleted', 'is_csv_row']:
                 continue
             metadata_text += f"{key}: {value} "
         return metadata_text
@@ -160,7 +159,6 @@ class CSVDocumentHandler:
                         "row_index": i,
                         "csv_source_id": safe_source_id,
                         "doc_id": doc_id,
-                        "csv_row_id": doc_id,
                         "is_csv_row": True,
                         "is_deleted": False
                     }
@@ -257,7 +255,7 @@ class CSVDocumentHandler:
             # Check if CSV source exists
             if csv_source_id not in self.csv_docs:
                 raise ValueError(f"CSV source not found: {csv_source_id}")
-            
+           
             safe_source_id = re.sub(r'[^\w\-\.]', '_', csv_source_id)  # Make filename safe
             results = self.kb.text_collection.get(
                 where={"$and": [{"csv_source_id": csv_source_id},
@@ -269,80 +267,23 @@ class CSVDocumentHandler:
             if not results:
                 raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
 
-            node_id_to_update = results["ids"][0]
-            logger.info(f"Found node ID to update: {node_id_to_update}")
-           
-            if not node_id_to_update:
-                raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
-            Settings.chunk_size = 1024
-            
-            existing_metadata = results["metadatas"][0]
-            csv_row_id = existing_metadata["csv_row_id"]
+            id = results["ids"][0]
 
-            logger.info(f"New metadata: {new_metadata}")
-            existing_metadata.update(new_metadata)
-
-            del existing_metadata["_node_content"]
-            logger.info(f"Updated metadata: {existing_metadata}")
-            updated_doc = Document(text=new_text, metadata=existing_metadata)
-            
-            logger.info(f"Deleting existing node with ID {node_id_to_update}")
-            self.kb.text_index.delete_nodes(
-                [node_id_to_update],
-                delete_from_docstore=True
+            self.kb.text_collection.update(
+                ids=[id],
+                documents=[new_text],
+                metadatas=[new_metadata]
             )
 
-            # Add the updated document
-            nodes = self.kb.node_parser.get_nodes_from_documents([updated_doc])
-            logger.info(f"Adding updated document with ID {node_id_to_update}")
-            Settings.chunk_size = 1024
-            self.kb.text_index.insert_nodes(nodes)
-            logger.info(f"Inserted updated document with ID {node_id_to_update}")
-            logger.info(f"Finding existing metadata node")
-            logger.info(results['documents'])
-            logger.info('-----------------------------------')
-            logger.info(results['metadatas'])
+            logger.info(f"Updated row with document ID {doc_id} in CSV source {csv_source_id}")
+          
+            # Update metadata index if it exists
+            # TODO
             
-            results = self.kb.metadata_collection.get(
-                where={"$and": [{"csv_source_id": csv_source_id},
-                {"csv_row_id": existing_metadata["csv_row_id"]}]}
-            )
-
-            logger.info(f"Query results: {results}")
-            if not results:
-                raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
-
-            meta_node_id_to_update = results["ids"][0]
- 
-            if meta_node_id_to_update:
-                self.kb.metadata_index.delete_nodes(
-                    [node_id_to_update],
-                    delete_from_docstore=True
-            )
-            
-            metadata_text = self._encode_metadata_for_indexing(existing_metadata)
-            logger.info(f"Metadata text: {metadata_text}")
-            if metadata_text.strip():
-                metadata_doc = Document(
-                    text=metadata_text,
-                    metadata={
-                        "csv_row_id": csv_row_id,
-                        "csv_source_id": csv_source_id,
-                        **existing_metadata
-                    }
-                )
-                logger.info(f"Creating metadata node from document: {metadata_doc}")
-                meta_nodes = self.kb.simple_node_parser.get_nodes_from_documents([metadata_doc])
-                logger.info(f"Metadata nodes: {meta_nodes}")
-                logger.info("Inserting")
-                self.kb.metadata_index.insert_nodes(meta_nodes)
-
             # Persist updates
-            logger.info("persisting text")
-            self.kb.text_index.storage_context.persist(persist_dir=os.path.join(self.kb.persist_dir, "text_index"))
-            if hasattr(self.kb, 'metadata_index'):
-                logger.info("persisting metadata")
-                self.kb.metadata_index.storage_context.persist(persist_dir=os.path.join(self.kb.persist_dir, "metadata_index"))
+            #self.kb.text_index.storage_context.persist(persist_dir=os.path.join(self.kb.persist_dir, "text_index"))
+            #if hasattr(self.kb, 'metadata_index'):
+            #    self.kb.metadata_index.storage_context.persist(persist_dir=os.path.join(self.kb.persist_dir, "metadata_index"))
             
             self._clear_retriever_cache()
             
@@ -546,12 +487,8 @@ class CSVDocumentHandler:
                 # Use ChromaDB collection directly
                 logger.info("Using ChromaDB collection directly to get CSV rows")
                 results = self.kb.text_collection.get(
-                    where={"csv_source_id": csv_source_id}
+                    where={"$and": [{"csv_source_id": csv_source_id}, {"is_deleted": {"$ne": True}}]}
                 )
-
-                #results = self.kb.text_collection.get(
-                #    where={"$and": [{"csv_source_id": csv_source_id}, {"is_deleted": {"$ne": True}}]}
-                #)
                 
                 rows = []
                 seen_doc_ids = set()  # Track doc_ids we've already processed
@@ -783,13 +720,16 @@ class CSVDocumentHandler:
                             break
             
             # Update changed rows
+            text_nodes = []
             for node_id, doc in to_update:
                 self.kb.text_index.delete_ref_doc(node_id, delete_from_docstore=True)
                 nodes = self.kb.node_parser.get_nodes_from_documents([doc])
-                for node in nodes:
-                    self.kb.text_index.insert_nodes([node])
+                text_nodes.extend(nodes)
+
+            self.kb.text_index.insert_nodes(nodes)
             
             # Update metadata for changed rows
+            meta_nodes = []
             if hasattr(self.kb, 'metadata_index'):
                 for doc_id, meta_doc in to_update_metadata:
                     # Find and delete existing metadata node
@@ -800,9 +740,9 @@ class CSVDocumentHandler:
                             break
                     
                     # Add updated metadata node
-                    meta_nodes = self.kb.node_parser.get_nodes_from_documents([meta_doc])
-                    for node in meta_nodes:
-                        self.kb.metadata_index.insert_nodes([node])
+                    metanodes = self.kb.node_parser.get_nodes_from_documents([meta_doc])
+                    meta_nodes.extend(metanodes)
+                self.kb.metadata_index.insert_nodes(meta_nodes)
             
             # Add new rows
             if to_add:

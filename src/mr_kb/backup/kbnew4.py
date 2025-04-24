@@ -104,9 +104,10 @@ def atomic_index_update(kb_instance: 'HierarchicalKnowledgeBase'):
 
 class HierarchicalKnowledgeBase:
     def __init__(self, persist_dir: str, 
-                 chunk_sizes: List[int] = [2048, 512, 256],
+                 chunk_sizes: List[int] = [2048, 512, 128],
                  embedding_model: Optional[str] = None,
                  batch_size: int = 10):
+        self.using_old_style = False  # Flag to track if we're using old-style indices
         # Cache for retrievers
         # Cache for retrievers
         self._retriever = None
@@ -212,7 +213,7 @@ class HierarchicalKnowledgeBase:
         # Check for ChromaDB files first (preferred)
         chroma_exists = os.path.exists(self.chroma_dir) and os.path.isdir(self.chroma_dir)
         if chroma_exists:
-            logger.info(f"ChromaDB directory exists at: {self.chroma_dir}")
+            logger.info(f"ChromaDB directory exists: {self.chroma_dir}")
             # Check if collections exist
             try:
                 self.chroma_client.get_collection(self.text_collection_name)
@@ -223,9 +224,25 @@ class HierarchicalKnowledgeBase:
                 chroma_exists = False  # Collection doesn't exist or can't be accessed
                 pass
         
-        # If we get here, ChromaDB files don't exist or collection couldn't be accessed        
+        # If we get here, ChromaDB files don't exist or collection couldn't be accessed
+        self.using_old_style = False
+        
+        # Check for old-style index files as fallback
+        old_style_files = [
+            'docstore.json',
+            'default__vector_store.json',
+            'index_store.json'
+        ]
+        old_style_exists = all(
+            os.path.exists(os.path.join(self.persist_dir, fname))
+            for fname in old_style_files
+        )
+
+        if old_style_exists:
+            self.using_old_style = True
+        logger.info(f"Old-style index files exist: {old_style_exists}")
         logger.info(f"chroma_exists: {chroma_exists}")
-        return chroma_exists
+        return chroma_exists or old_style_exists
 
     def _setup_vector_stores(self):
         """Set up ChromaDB vector stores for text and metadata"""
@@ -250,7 +267,12 @@ class HierarchicalKnowledgeBase:
         # Check if any index files exist and determine which type to load
         index_exists = self._index_files_exist()
         
-        if index_exists:
+        if index_exists and self.using_old_style:
+            self.storage_context = StorageContext.from_defaults(persist_dir=self.persist_dir)
+            self.index = load_index_from_storage(self.storage_context)
+            self.text_index = self.index  # For backward compatibility
+            return True
+        elif index_exists:
             # Set up vector stores
             self._setup_vector_stores()
             # Load ChromaDB indices
@@ -262,6 +284,47 @@ class HierarchicalKnowledgeBase:
         
         # If no index files exist at all, return False
         return False
+    
+    def _migrate_from_old_index(self):
+        """Migration completely disabled. Always returns empty list."""
+        logger.info("Migration from old index format is disabled")
+        return []  # Migration disabled - unreachable code below
+        
+        # Try to load ChromaDB indices
+        try:
+            # Set up vector stores
+            self._setup_vector_stores()
+            logger.info(f"ChromaDB vector stores set up successfully in {self.chroma_dir}")
+            
+            # Create storage contexts
+            text_storage_context = StorageContext.from_defaults(vector_store=self.text_vector_store)
+            metadata_storage_context = StorageContext.from_defaults(vector_store=self.metadata_vector_store)
+            
+            # Create indices
+            self.text_index = VectorStoreIndex.from_vector_store(
+                self.text_vector_store,
+                storage_context=text_storage_context,
+                embed_model=self.embed_model
+            )
+            
+            self.metadata_index = VectorStoreIndex.from_vector_store(
+                self.metadata_vector_store,
+                storage_context=metadata_storage_context,
+                embed_model=self.embed_model
+            )
+            
+            # For backward compatibility, set index to text_index
+            self.index = self.text_index
+            
+            # Initialize CSV handler
+            from .csv_handler import CSVDocumentHandler
+            self.csv_handler = CSVDocumentHandler(self)
+            logger.info("ChromaDB indices loaded successfully")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Failed to load ChromaDB indices: {str(e)}")
+            return False
     
     def _encode_metadata_for_indexing(self, metadata):
         """Convert metadata to a string for vector indexing"""
@@ -300,7 +363,7 @@ class HierarchicalKnowledgeBase:
             yield nodes
     
     async def create_index(self, data_dir: str, progress_callback: Optional[Callable] = None, skip_if_exists: bool = True):
-        """Create a new index, optionally from a directory of documents."""
+        """Create a new index from a directory of documents."""
         try:
             # Configure custom file handlers based on available support
             # PDF is handled automatically when PyPDF2/pypdf is installed
@@ -314,27 +377,27 @@ class HierarchicalKnowledgeBase:
             if self.supported_types[".docx"]:
                 file_extractor[".docx"] = DocxReader()
             
+            documents = SimpleDirectoryReader(data_dir, file_extractor=file_extractor).load_data(num_workers=5)
+
+            if not documents:
+                raise ValueError(f"No documents found in {data_dir}")
+                
+            # Migration disabled - always empty list
+            old_documents = []
+            all_nodes = []
+            async for nodes in self.process_documents(documents, progress_callback):
+                print("Processing node..")
+                all_nodes.extend(nodes)
+
             if skip_if_exists and self.load_if_exists():
                 # If we loaded an existing index, just refresh it with the new documents
-                logger.info("Using existing index")
-                
-                # If data_dir is provided, add documents to the existing index
-                if os.path.exists(data_dir) and os.path.isdir(data_dir):
-                    try:
-                        documents = SimpleDirectoryReader(data_dir, file_extractor=file_extractor).load_data(num_workers=5)
-                        if documents:
-                            logger.info(f"Adding {len(documents)} documents to existing index")
-                            self.text_index.refresh_ref_docs(documents)
-                            # ChromaDB handles vector data persistence, just persist docstore if needed
-                            if hasattr(self.text_index, 'docstore'):
-                                self.text_index.docstore.persist()
-                            
-                            self._clear_retriever_cache()
-                    except Exception as e:
-                        logger.warning(f"Failed to add documents from {data_dir}: {str(e)}")
+                print("Using existing index ADD_DOCUMENT in KB")
+                self.text_index.refresh_ref_docs(documents)
+                self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+                self._clear_retriever_cache()
 
                 return self.index
-            
+ 
             # Set up vector stores if not already done
             if not hasattr(self, 'text_vector_store') or not self.text_vector_store:
                 self._setup_vector_stores()
@@ -343,25 +406,12 @@ class HierarchicalKnowledgeBase:
             text_storage_context = StorageContext.from_defaults(vector_store=self.text_vector_store)
             metadata_storage_context = StorageContext.from_defaults(vector_store=self.metadata_vector_store)
             
-            # Process documents if data_dir is provided and exists
-            all_nodes = []
-            if os.path.exists(data_dir) and os.path.isdir(data_dir):
-                try:
-                    documents = SimpleDirectoryReader(data_dir, file_extractor=file_extractor).load_data(num_workers=5)
-                    if documents:
-                        async for nodes in self.process_documents(documents, progress_callback):
-                            logger.info("Processing nodes from documents")
-                            all_nodes.extend(nodes)
-                except Exception as e:
-                    logger.warning(f"Failed to process documents from {data_dir}: {str(e)}")
-            
-            # Create text index (empty if no documents were provided)
-            self.text_index = VectorStoreIndex.from_vector_store(
-                self.text_vector_store, embed_model=self.embed_model)
-
-            # Add nodes if we have any
-            if all_nodes:
-                self.text_index.insert_nodes(all_nodes)
+            # Create text index
+            self.text_index = VectorStoreIndex(
+                all_nodes,
+                storage_context=text_storage_context,
+                embed_model=self.embed_model
+            )
             
             # Create metadata documents and index
             metadata_documents = []
@@ -377,24 +427,26 @@ class HierarchicalKnowledgeBase:
                     )
                     metadata_documents.append(metadata_doc)
             
-            # Create empty metadata index
-            self.metadata_index = VectorStoreIndex.from_vector_store(
-                self.metadata_vector_store, embed_model=self.embed_model)
+            if metadata_documents:
+                metadata_nodes = self.node_parser.get_nodes_from_documents(metadata_documents)
+                self.metadata_index = VectorStoreIndex(
+                    metadata_nodes,
+                    storage_context=metadata_storage_context,
+                    embed_model=self.embed_model
+                )
             
             # For backward compatibility, set index to text_index
             self.index = self.text_index
             
-            # Add metadata documents if we have any
-            if metadata_documents:
-                metadata_nodes = self.node_parser.get_nodes_from_documents(metadata_documents)
-                self.metadata_index.insert_nodes(metadata_nodes)
+            # Add old documents if migrating
+            if old_documents:
+                logger.info(f"Adding {len(old_documents)} documents from old index")
+                self.text_index.refresh_ref_docs(old_documents)
             
-            # Persist indices (ChromaDB handles its own persistence)
-            # Just persist the docstore for non-vector data if needed
-            if hasattr(self.text_index, 'docstore'):
-                self.text_index.docstore.persist()
-                if hasattr(self, 'metadata_index') and self.metadata_index and hasattr(self.metadata_index, 'docstore'):
-                    self.metadata_index.docstore.persist()
+            # Persist indices
+            self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+            if hasattr(self, 'metadata_index') and self.metadata_index:
+                self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
             
             # Initialize CSV handler
             from .csv_handler import CSVDocumentHandler
@@ -476,11 +528,9 @@ class HierarchicalKnowledgeBase:
                     self.metadata_index.refresh_ref_docs(metadata_documents)
                 
                 # Persist indices
-                # ChromaDB handles vector data persistence, just persist docstore if needed
-                if hasattr(self.text_index, 'docstore'):
-                    self.text_index.docstore.persist()
-                    if hasattr(self, 'metadata_index') and self.metadata_index and hasattr(self.metadata_index, 'docstore'):
-                        self.metadata_index.docstore.persist()
+                self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+                if hasattr(self, 'metadata_index') and self.metadata_index:
+                    self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
                 
                 self._clear_retriever_cache()
             else:
@@ -538,18 +588,16 @@ class HierarchicalKnowledgeBase:
             if metadata_documents:
                 metadata_nodes = self.node_parser.get_nodes_from_documents(metadata_documents)
                 
-            self.text_index.insert_nodes(all_nodes)
+            self.text_index.insert_nodes(all_node)
                 
             # Add metadata nodes if available
             if hasattr(self, 'metadata_index') and self.metadata_index and metadata_nodes:
                 self.metadata_index.insert_nodes(metadata_nodes)
             
-            # Persist indices (ChromaDB handles its own persistence)
-            # Just persist the docstore for non-vector data if needed
-            if hasattr(self.text_index, 'docstore'):
-                self.text_index.docstore.persist()
-                if hasattr(self, 'metadata_index') and self.metadata_index and hasattr(self.metadata_index, 'docstore'):
-                    self.metadata_index.docstore.persist()
+            # Persist indices
+            self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
+            if hasattr(self, 'metadata_index') and self.metadata_index:
+                self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
             
             self._clear_retriever_cache()
                 
@@ -842,15 +890,12 @@ class HierarchicalKnowledgeBase:
             
             # Persist updates
             self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
-            # ChromaDB handles vector data persistence, just persist docstore if needed
-            if hasattr(self.text_index, 'docstore'):
-                self.text_index.docstore.persist()
+            self.text_index.docstore.persist()
             
-            # Persist metadata index if it exists (ChromaDB handles vector data)
+            # Persist metadata index if it exists
             if hasattr(self, 'metadata_index') and self.metadata_index:
-                if hasattr(self.metadata_index, 'docstore'):
-                    self.metadata_index.docstore.persist()
-
+                self.metadata_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "metadata_index"))
+                self.metadata_index.docstore.persist()
 
             print("Saved docstore")
             self._clear_retriever_cache()

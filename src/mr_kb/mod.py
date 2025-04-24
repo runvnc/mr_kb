@@ -40,9 +40,6 @@ async def create_kb(name: str, description: str = ""):
     storage_dir = f"data/kb/bases/{name}"
     os.makedirs(storage_dir, exist_ok=True)
 
-    with open(f"{storage_dir}/init.txt", "w") as f:
-        f.write("!!")
-
     kb = HierarchicalKnowledgeBase(storage_dir)
     await kb.create_index(storage_dir)
     _kb_instances[name] = kb
