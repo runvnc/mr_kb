@@ -136,7 +136,7 @@ class CSVDocumentHandler:
             total_rows = len(rows)
             
             for i, row in enumerate(rows):
-                logger.info(f"Processing row {i}/{total_rows}: {row}")
+                logger.info(f"Processing row {i}/{total_rows}:")
                 # Skip header row if it exists and is configured to be skipped
                 if i == 0 and has_header:
                     continue
@@ -148,15 +148,32 @@ class CSVDocumentHandler:
                         logger.warning(f"Row {i} has insufficient columns ({len(row)} <= {max_required_col}), skipping")
                         continue
                     
+
                     # Extract text and document ID
                     text = row[text_col].strip()
                     doc_id = row[id_col].strip()
                     
+                    if len(row)> 10:
+                        logger.warning(f"Row {i} has too many columns ({len(row)}), skipping")
+                        logger.info(row)
+                        continue
+
                     # Skip empty rows
                     if not text or not doc_id:
                         logger.warning(f"Row {i} has empty text or ID, skipping")
                         continue
-                    
+
+                    if len(text)< 20:
+                        logger.warning(f"Row {i} has very short text: {text}\nrow is: {row}")
+                        continue
+
+                    if len(text)> 100000:
+                        truncated = text[:1000] + '...' + text[-1000:]
+                        logger.warning(f"Very long text {text}")
+                        logger.warning(f"Row {i} has very long text ({len(text)} characters): truncated {truncated}")
+                        logger.info("Doc id is: " + doc_id)
+                        continue
+
                     # Create metadata
                     metadata = {
                         "file_path": file_path,
@@ -179,9 +196,8 @@ class CSVDocumentHandler:
                             metadata[col_name] = row[col_idx]
                     
                     # Create document for text index
-                    doc = Document(text=text, metadata=metadata)
+                    doc = Document(id_=doc_id, text=text, metadata=metadata)
                     documents.append(doc)
-                    nodes = self.kb.simple_node_parser.get_nodes_from_documents([doc])
                     
                     # Create document for metadata index
                     metadata_text = self._encode_metadata_for_indexing(metadata)
@@ -190,7 +206,7 @@ class CSVDocumentHandler:
                             text=metadata_text,
                             metadata={
                                 "csv_row_id": doc_id,
-                               "source_node_id": nodes[0].id_ if nodes else None,
+                                "source_node_id": doc_id,
                                 "csv_source_id": safe_source_id,
                                 **metadata
                             }
@@ -222,17 +238,45 @@ class CSVDocumentHandler:
             if documents:
                 # Add to text index
                 logger.info(f"Adding {len(documents)} documents to text index")
-                nodes = self.kb.simple_node_parser.get_nodes_from_documents(documents)
-                logger.info(f"Text nodes count: {len(nodes)}")
-                self.kb.text_index.insert_nodes(nodes)
+                
+                # Process documents in batches
+                batch_size = getattr(self.kb, 'batch_size', 100)  # Default to 100 if not specified
+                for i in range(0, len(documents), batch_size):
+                    batch = documents[i:i+batch_size]
+                    for doc in batch:
+                        logger.info(f"Document type: {type(doc)}")
+
+                    logger.info(f"Processing batch {i//batch_size + 1}/{(len(documents)-1)//batch_size + 1} with {len(batch)} documents")
+                    nodes = self.kb.node_parser.get_nodes_from_documents(batch)
+                    logger.info(f"Batch nodes count: {len(nodes)}.. inserting nodes into text index")
+                    if len(nodes) > 5000:
+                        # something is wrong
+                        logger.info(f"weirdly large number of nodes, probably parsing error")
+                        logger.info(nodes)
+                        logger.info(f"way too many node, parsing problem, aborting")
+                        return
+                    #logger.info("Would insert nodes here if not testing")
+                    self.kb.text_index.insert_nodes(nodes)
+                    
+                    # Update progress periodically if callback provided
+                    if progress_callback:
+                        progress_callback(0.5 + (0.3 * min(1.0, i / len(documents))))
                 
                 # Add to metadata index if it exists
                 if hasattr(self.kb, 'metadata_index') and metadata_documents:
                     logger.info(f"Adding {len(metadata_documents)} documents to metadata index")
-                    meta_nodes = self.kb.simple_node_parser.get_nodes_from_documents(metadata_documents)
-                    # show node count
-                    logger.info(f"Metadata nodes count: {len(meta_nodes)}")
-                    self.kb.metadata_index.insert_nodes(meta_nodes)
+                    
+                    # Process metadata documents in batches
+                    for i in range(0, len(metadata_documents), batch_size):
+                        meta_batch = metadata_documents[i:i+batch_size]
+                        logger.info(f"Processing metadata batch {i//batch_size + 1}/{(len(metadata_documents)-1)//batch_size + 1} with {len(meta_batch)} documents")
+                        meta_nodes = self.kb.simple_node_parser.get_nodes_from_documents(meta_batch)
+                        logger.info(f"Batch metadata nodes count: {len(meta_nodes)}")
+                        self.kb.metadata_index.insert_nodes(meta_nodes)
+                        
+                        # Update progress periodically if callback provided
+                        if progress_callback:
+                            progress_callback(0.8 + (0.1 * min(1.0, i / len(metadata_documents))))
                 
                 # Persist indices
                 logger.info("Persisting text and metadata indices")
@@ -299,12 +343,21 @@ class CSVDocumentHandler:
                 delete_from_docstore=True
             )
 
-            # Add the updated document
+            # Add the updated document - use batch processing for consistency
+            batch_docs = [updated_doc]
+            batch_size = getattr(self.kb, 'batch_size', 100)  # Default to 100 if not specified
+            
+            # Process in batches (though this is typically just one document for updates)
+            for i in range(0, len(batch_docs), batch_size):
+                batch = batch_docs[i:i+batch_size]
+                nodes = self.kb.node_parser.get_nodes_from_documents(batch)
+                logger.info(f"Adding updated document batch with ID {node_id_to_update}")
+                self.kb.text_index.insert_nodes(nodes)
+            
+            # Get node ID from the first batch
             nodes = self.kb.node_parser.get_nodes_from_documents([updated_doc])
-            logger.info(f"Adding updated document with ID {node_id_to_update}")
             node_id = nodes[0].id_ if nodes else None
             Settings.chunk_size = 1024
-            self.kb.text_index.insert_nodes(nodes)
             logger.info(f"Inserted updated document with ID {node_id_to_update}")
             logger.info(f"Finding existing metadata node")
             logger.info(results['documents'])
@@ -403,8 +456,16 @@ class CSVDocumentHandler:
                 
                 # Add the updated document with empty text but preserved metadata
                 nodes = self.kb.node_parser.get_nodes_from_documents([updated_doc])
-                for node in nodes:
-                    self.kb.text_index.insert_nodes([node])
+                
+                # Process in batches for consistency
+                batch_size = getattr(self.kb, 'batch_size', 100)  # Default to 100 if not specified
+                
+                # Since this is typically a single document, we'll just process it directly
+                # But we maintain the batch structure for consistency with other methods
+                for i in range(0, len(nodes), batch_size):
+                    batch = nodes[i:i+batch_size]
+                    logger.info(f"Adding deleted row batch {i//batch_size + 1}/{(len(nodes)-1)//batch_size + 1}")
+                    self.kb.text_index.insert_nodes(batch)
                 
                 # Also update the metadata index
                 if hasattr(self.kb, 'metadata_index'):
@@ -499,13 +560,31 @@ class CSVDocumentHandler:
             
             # Add the new document
             nodes = self.kb.node_parser.get_nodes_from_documents([doc])
-            node_id = nodes[0].id_ if nodes else None
-            self.kb.text_index.insert_nodes(nodes)
             
+            # Process in batches for consistency
+            batch_docs = [doc]
+            batch_size = getattr(self.kb, 'batch_size', 100)  # Default to 100 if not specified
+            
+            for i in range(0, len(batch_docs), batch_size):
+                batch = batch_docs[i:i+batch_size]
+                batch_nodes = self.kb.node_parser.get_nodes_from_documents(batch)
+                logger.info(f"Adding new row batch {i//batch_size + 1}/{(len(batch_docs)-1)//batch_size + 1}")
+                self.kb.text_index.insert_nodes(batch_nodes)
+            
+            node_id = nodes[0].id_ if nodes else None            
             # Add metadata document if available
             if metadata_doc and hasattr(self.kb, 'metadata_index'):
-                meta_nodes = self.kb.node_parser.get_nodes_from_documents([metadata_doc])
-                self.kb.metadata_index.insert_nodes(meta_nodes)
+                # Process metadata in batches for consistency
+                meta_batch_docs = [metadata_doc]
+                batch_size = getattr(self.kb, 'batch_size', 100)  # Default to 100 if not specified
+                
+                for i in range(0, len(meta_batch_docs), batch_size):
+                    batch = meta_batch_docs[i:i+batch_size]
+                    meta_nodes = self.kb.simple_node_parser.get_nodes_from_documents(batch)
+                    logger.info(f"Adding metadata batch {i//batch_size + 1}/{(len(meta_batch_docs)-1)//batch_size + 1}")
+                    self.kb.metadata_index.insert_nodes(meta_nodes)
+                    
+                    # No need for progress callback here as this is typically a small operation
             
             # Persist updates
             self.kb.text_index.storage_context.persist(persist_dir=os.path.join(self.kb.persist_dir, "text_index"))
@@ -739,7 +818,7 @@ class CSVDocumentHandler:
                             metadata[col_name] = row[col_idx]
                     
                     # Create document
-                    new_docs[doc_id] = Document(text=text, metadata=metadata)
+                    new_docs[doc_id] = Document(id_=doc_id, text=text, metadata=metadata)
                     
                     # Create metadata document
                     metadata_text = self._encode_metadata_for_indexing(metadata)
@@ -748,7 +827,7 @@ class CSVDocumentHandler:
                             text=metadata_text,
                             metadata={
                                 "csv_row_id": doc_id,
-                               "source_node_id": nodes[0].id_ if nodes else None,
+                               "source_node_id": doc_id,
                                 "csv_source_id": safe_source_id,
                                 **metadata
                             }
@@ -818,16 +897,34 @@ class CSVDocumentHandler:
             
             # Add new rows
             if to_add:
-                nodes = self.kb.node_parser.get_nodes_from_documents(to_add)
-                for node in nodes:
-                    self.kb.text_index.insert_nodes([node])
-            
+                # Process in batches for consistency
+                batch_size = getattr(self.kb, 'batch_size', 100)  # Default to 100 if not specified
+                
+                # Process documents in batches
+                for i in range(0, len(to_add), batch_size):
+                    batch = to_add[i:i+batch_size]
+                    nodes = self.kb.node_parser.get_nodes_from_documents(batch)
+                    logger.info(f"Adding sync batch {i//batch_size + 1}/{(len(to_add)-1)//batch_size + 1} with {len(batch)} documents")
+                    self.kb.text_index.insert_nodes(nodes)
+                    
+                    # Update progress periodically if callback provided
+                    if progress_callback:
+                        progress_callback(0.5 + (0.3 * min(1.0, i / len(to_add))))            
             # Add new metadata
             if hasattr(self.kb, 'metadata_index') and to_add_metadata:
-                meta_nodes = self.kb.node_parser.get_nodes_from_documents(to_add_metadata)
-                for node in meta_nodes:
-                    self.kb.metadata_index.insert_nodes([node])
-            
+                # Process in batches for consistency
+                batch_size = getattr(self.kb, 'batch_size', 100)  # Default to 100 if not specified
+                
+                # Process metadata documents in batches
+                for i in range(0, len(to_add_metadata), batch_size):
+                    batch = to_add_metadata[i:i+batch_size]
+                    meta_nodes = self.kb.simple_node_parser.get_nodes_from_documents(batch)
+                    logger.info(f"Adding metadata sync batch {i//batch_size + 1}/{(len(to_add_metadata)-1)//batch_size + 1} with {len(batch)} documents")
+                    self.kb.metadata_index.insert_nodes(meta_nodes)
+                    
+                    # Update progress periodically if callback provided
+                    if progress_callback:
+                        progress_callback(0.8 + (0.1 * min(1.0, i / len(to_add_metadata))))            
             # Persist updates
             self.kb.text_index.storage_context.persist(persist_dir=os.path.join(self.kb.persist_dir, "text_index"))
             if hasattr(self.kb, 'metadata_index'):
@@ -860,7 +957,7 @@ class CSVDocumentHandler:
             from .kb import DocumentProcessingError
             raise DocumentProcessingError(f"CSV document sync failed: {str(e)}") from e
 
-    async def search_csv_rows(self, csv_source_id: str, query_text: str, limit: int = 10):
+    async def search_csv_rows(self, csv_source_id: str, query_text: str, limit: int = 15):
         """Search for CSV rows that match a query using vector similarity.
         
         Args:
@@ -885,8 +982,8 @@ class CSVDocumentHandler:
             # Use the KB's retrieve_relevant_nodes method to search
             results = await self.kb.retrieve_relevant_nodes(
                 query_text,
-                similarity_top_k=limit * 2,  # Request more initially for better filtering
-                final_top_k=limit * 2,
+                similarity_top_k=limit,  # Request more initially for better filtering
+                final_top_k=limit,
                 min_score=0.0,  # Don't filter by score, we'll take the top N results
                 include_verbatim=False,
                 search_metadata=True,
@@ -941,7 +1038,8 @@ class CSVDocumentHandler:
                     
                     csv_results.append(row)
             
-            return csv_results
+            # return max limit results
+            return csv_results[:limit]
             
         except Exception as e:
             logger.error(f"Failed to search CSV rows: {str(e)}")

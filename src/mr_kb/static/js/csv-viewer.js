@@ -28,7 +28,8 @@ class CsvViewer extends BaseEl {
     }
 
     .csv-viewer {
-      background: var(--component-bg, var(--background-color));
+      /* background: var(--component-bg, var(--background-color)); */
+      background: rgba(0, 0, 0);
       color: var(--component-text, var(--text-color));
       border-radius: 8px;
       padding: 1.5rem;
@@ -196,7 +197,8 @@ class CsvViewer extends BaseEl {
     }
 
     .modal-content {
-      background: var(--component-bg, var(--background-color));
+      /* background: var(--component-bg, var(--background-color)); */
+      background: black;
       color: var(--component-text, var(--text-color));
       border-radius: 8px;
       padding: 1.5rem;
@@ -242,7 +244,7 @@ class CsvViewer extends BaseEl {
     }
 
     .form-group textarea {
-      min-height: 100px;
+      min-height: 300px;
       resize: vertical;
     }
 
@@ -350,9 +352,10 @@ class CsvViewer extends BaseEl {
     const oldRows = [...this.rows]; // Save current rows in case of error
     
     try {
+      if (query == '') return
       const url = new URL(`/api/kb/${this.kbName}/csv/${this.sourceId}/search`, window.location.origin);
       url.searchParams.append('query', query);
-      url.searchParams.append('limit', '50'); // Reasonable default limit
+      url.searchParams.append('limit', '15'); // Reasonable default limit
       
       const response = await fetch(url);
       const result = await response.json();
@@ -518,7 +521,7 @@ class CsvViewer extends BaseEl {
             </table>
           </div>
           
-          <div class="sync-section">
+          <div class="sync-section" style="display:none;">
             <h4>Sync with Updated CSV</h4>
             <p>Upload a new version of this CSV to sync changes.</p>
             
@@ -629,7 +632,7 @@ class CsvViewer extends BaseEl {
   }
 
   refresh() {
-    this.loadData();
+    //this.loadData();
   }
 
   editRow(row) {
@@ -707,7 +710,7 @@ class CsvViewer extends BaseEl {
       
       if (result.success) {
         this.closeModal();
-        this.loadData(); // Refresh the data
+        //this.loadData(); // Refresh the data
       } else {
         this.error = result.message || 'Failed to update row';
       }
@@ -749,7 +752,7 @@ class CsvViewer extends BaseEl {
       
       if (result.success) {
         this.closeAddRowModal();
-        this.loadData(); // Refresh the data
+        //this.loadData(); // Refresh the data
       } else {
         this.error = result.message || 'Failed to add row';
       }
@@ -774,7 +777,7 @@ class CsvViewer extends BaseEl {
       const result = await response.json();
       
       if (result.success) {
-        this.loadData(); // Refresh the data
+        //this.loadData(); // Refresh the data
       } else {
         this.error = result.message || 'Failed to delete row';
       }
@@ -826,7 +829,7 @@ class CsvViewer extends BaseEl {
         
         if (result.success) {
           if (result.status === 'complete') {
-            this.loadData(); // Refresh data when complete
+            //this.loadData(); // Refresh data when complete
             return true;
           } else if (result.status === 'error') {
             this.error = result.message || 'Error during CSV sync';

@@ -586,7 +586,7 @@ async def get_csv_rows(name: str, source_id: str, request: Request):
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
 @router.get("/api/kb/{name}/csv/{source_id}/search")
-async def search_csv_rows(name: str, source_id: str, query: str = "", limit: int = 10, request: Request = None):
+async def search_csv_rows(name: str, source_id: str, query: str = "", limit: int = 3, request: Request = None):
     """Search for CSV rows that match a query"""
     try:
         kb = await get_kb_instance(name)

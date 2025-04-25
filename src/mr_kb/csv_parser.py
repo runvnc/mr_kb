@@ -3,7 +3,7 @@ import os
 import re
 
 # Set a high field size limit for large text fields
-csv.field_size_limit(1000000)
+csv.field_size_limit(10000000)
 
 def detect_csv_format(file_content):
     """
