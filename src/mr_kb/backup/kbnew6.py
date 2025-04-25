@@ -1122,8 +1122,7 @@ class HierarchicalKnowledgeBase:
             if len(text_searches) > 0:
                 logger.info(f"Searching text collection for ids: {text_ids}")
                 #text_search_results = self.text_collection.get(ids=text_ids)
-                #text_search_results = self.text_collection.get(where={"csv_row_id":text_ids[0]})
-                text_search_results = self.text_collection.get(where={"csv_row_id": {"$in": text_ids}})
+                text_search_results = self.text_collection.get(where={"csv_row_id":text_ids[0]})
                 num_results = len(text_search_results["metadatas"])
                 logger.info(f"length of results: {num_results}")
                 by_row_id = {}
@@ -1140,18 +1139,15 @@ class HierarchicalKnowledgeBase:
                     metadata_by_row_id[metadata["csv_row_id"]] = metadata
 
                 logger.info(f"Found {len(by_row_id)} rows in CSV with matching IDs")
+
                 for csv_row_id, text in by_row_id.items():
-                    logger.info(f"Adding metadata result, score = {scores_by_row_id[csv_row_id]}")
+                    logger.info("Adding metadata result")
                     metadata_results.append((text, 
                                             metadata_by_row_id[csv_row_id],
                                             scores_by_row_id[csv_row_id],
                                             len(text) )) 
                     logger.info("Added ok")
 
-            metadata_results = sorted(metadata_results, key=lambda x: x[2], reverse=True)
-            logger.info(f"sorted metadata_results")
-            for result in metadata_results:
-                logger.info(f"score: {result[2]} metadata: {result[1]}")
             retriever_end = datetime.datetime.now()
             print(f"Total retriever setup time: {retriever_end - retriever_start}")
             
