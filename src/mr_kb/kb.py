@@ -289,6 +289,7 @@ class HierarchicalKnowledgeBase:
                 processed += len(current_batch)
                 if progress_callback:
                     progress_callback(processed / total_docs)
+                logger.info(f"Processed batch of {len(current_batch)} documents into {len(nodes)} nodes. Node sizes: {[len(node.text) for node in nodes]}")
                 current_batch = []
                 yield nodes
         
@@ -296,6 +297,7 @@ class HierarchicalKnowledgeBase:
             nodes = self.node_parser.get_nodes_from_documents(current_batch)
             if progress_callback:
                 progress_callback(1.0)
+            logger.info(f"Processed final batch of {len(current_batch)} documents into {len(nodes)} nodes. Node sizes: {[len(node.text) for node in nodes]}")
             yield nodes
     
     async def create_index(self, data_dir: str, progress_callback: Optional[Callable] = None, skip_if_exists: bool = True):
@@ -361,6 +363,7 @@ class HierarchicalKnowledgeBase:
             # Add nodes if we have any
             if all_nodes:
                 self.text_index.insert_nodes(all_nodes)
+                logger.info(f"Inserted {len(all_nodes)} nodes into text_index. Node sizes: {[len(node.text) for node in all_nodes[:10]]}{'...' if len(all_nodes) > 10 else ''}")
             
             # Create metadata documents and index
             metadata_documents = []
@@ -408,7 +411,7 @@ class HierarchicalKnowledgeBase:
     
     async def add_document(self, file_path: str, 
                           progress_callback: Optional[Callable[[float], None]] = None,
-                          refresh_mode: bool = True,
+                          refresh_mode: bool = False,
                           always_include_verbatim: bool = False,
                           force_verbatim: bool = False):
         """Add a single new document to the index.
@@ -471,6 +474,8 @@ class HierarchicalKnowledgeBase:
             if refresh_mode:
                 # Use refresh_ref_docs for automatic updates
                 self.text_index.refresh_ref_docs(documents)
+                logger.info(f"Refreshed {len(documents)} documents in text_index. Document sizes: {[len(doc.text) for doc in documents]}")
+                logger.info(f"Refreshed {len(documents)} documents in text_index. Document sizes: {[len(doc.text) for doc in documents]}")
                 if metadata_documents and hasattr(self, 'metadata_index') and self.metadata_index:
                     self.metadata_index.refresh_ref_docs(metadata_documents)
                 
@@ -484,7 +489,25 @@ class HierarchicalKnowledgeBase:
                 self._clear_retriever_cache()
             else:
                 # Use traditional insert method
-                await self._add_document_insert(file_path, progress_callback)
+                # Load and process new document
+                file_extractor = self._get_file_extractors()
+                documents = SimpleDirectoryReader(input_files=[file_path], 
+                                              filename_as_id=True,
+                                              file_extractor=file_extractor).load_data()
+                
+                if not documents:
+                    raise ValueError(f"No content found in {file_path}")
+                
+                # Process documents with HierarchicalNodeParser
+                all_nodes = []
+                for doc in documents:
+                    nodes = self.node_parser.get_nodes_from_documents([doc])
+                    logger.info(f"Processed document into {len(nodes)} nodes. Node sizes: {[len(node.text) for node in nodes]}")
+                    all_nodes.extend(nodes)
+                
+                # Insert nodes directly
+                self.text_index.insert_nodes(all_nodes)
+                logger.info(f"Inserted {len(all_nodes)} nodes into text_index. Node sizes: {[len(node.text) for node in all_nodes[:10]]}{'...' if len(all_nodes) > 10 else ''}")
             
             # Call progress callback with completion
             if progress_callback:
@@ -899,17 +922,36 @@ class HierarchicalKnowledgeBase:
     def get_document_info(self) -> List[Dict]:
         """Get information about all documents and their hierarchical structure."""
         print("Get document info")
-        if not self.index:
+        if not self.text_index:
+            logger.warning("Index not initialized.")
             return []
-        print('1')
+        
         docs_info = {}
-        seen_doc_ids = set()
-
-        for id, doc in self.index.docstore.docs.items():
-            print(id, doc.metadata)
-            if doc.metadata['file_path'] not in docs_info:
-                docs_info[doc.metadata['file_path']] = doc.metadata
-            print("--------------------------------------------------------------------")
+        
+        # Try to get documents from docstore first (backward compatibility)
+        if hasattr(self.text_index, 'docstore') and self.text_index.docstore.docs:
+            for id, doc in self.text_index.docstore.docs.items():
+                if 'file_path' in doc.metadata and doc.metadata['file_path'] not in docs_info:
+                    docs_info[doc.metadata['file_path']] = doc.metadata
+        
+        # If docstore is empty or not populated, query ChromaDB directly
+        if not docs_info and hasattr(self, 'text_collection'):
+            try:
+                # Get all documents from ChromaDB collection
+                all_docs = self.text_collection.get()
+                
+                # Process each document's metadata
+                for i, metadata in enumerate(all_docs["metadatas"]):
+                    if metadata and 'file_path' in metadata and metadata['file_path'] not in docs_info:
+                        # Skip CSV rows
+                        if metadata.get('is_csv_row'):
+                            continue
+                        
+                        # Add document info
+                        docs_info[metadata['file_path']] = metadata
+            except Exception as e:
+                logger.error(f"Error querying ChromaDB: {str(e)}")
+        
         # convert from dict to list
         as_list = []
         for k, v in docs_info.items():
@@ -917,10 +959,10 @@ class HierarchicalKnowledgeBase:
             url_hash = None
             is_url = False
             url_info = {}
-            
+
             # Look through url_docs to find if this file is from a URL
             for hash_id, info in self.url_docs.items():
-                if info.get("file_path") == k:
+                if info and info.get("file_path") == k:
                     url_hash = hash_id
                     is_url = True
                     url_info = info
@@ -935,7 +977,7 @@ class HierarchicalKnowledgeBase:
             else:
                 v['is_url'] = False
                 
-            as_list.append(v)
+            as_list.append(v) 
         return as_list
 
         for node_id, node in self.index.docstore.docs.items(): #.docstore.docs.items():
@@ -1044,7 +1086,7 @@ class HierarchicalKnowledgeBase:
         print("Cleared retriever cache")
 
     @dispatcher.span
-    async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15, final_top_k: int = 6, min_score: float = 0.69, include_verbatim: bool = True, search_metadata: bool = True, metadata_only: bool = False):
+    async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15, final_top_k: int = 6, min_score: float = 0.29, include_verbatim: bool = True, search_metadata: bool = True, metadata_only: bool = False):
         """Get raw retrieval results without LLM synthesis.
         
         Returns:
@@ -1072,14 +1114,21 @@ class HierarchicalKnowledgeBase:
             if not metadata_only:
                 text_retriever = self.text_index.as_retriever(similarity_top_k=similarity_top_k)
                 text_nodes = await text_retriever.aretrieve(query_text)
+                logger.info(f"Initial text_nodes: {text_nodes}")
                 
+                logger.info(f"Retrieved {len(text_nodes)} text nodes. Node sizes: {[(node.node.id_, len(node.node.text), node.score) for node in text_nodes[:5]]}{'...' if len(text_nodes) > 5 else ''}")
                 # Get raw results from text index
                 text_results = [(node.node.text, 
                         node.node.metadata,
                         node.score,
                         len(node.node.text)) for node in text_nodes]
+                # log scores and text lengths
+                for node in text_nodes:
+                    logger.info(f"node = {node.node.metadata} score = {node.score} text length = {len(node.node.text)}")
+
                 text_results = [r for r in text_results if r[2] >= min_score]
 
+                logger.info(f"After filtering by min_score {min_score}, {len(text_results)} text results remain. Result sizes: {[(len(r[0]), r[2]) for r in text_results[:5]]}{'...' if len(text_results) > 5 else ''}")
             logger.info(f"metadata_only = {metadata_only} text_results = {text_results}")
             text_searches = []
             text_ids = []
@@ -1090,6 +1139,7 @@ class HierarchicalKnowledgeBase:
                 logger.info(f"query_text = {query_text} similarity_top_k = {similarity_top_k} min_score = {min_score}")
                 metadata_nodes = await metadata_retriever.aretrieve(query_text)
                 logger.info(f"metadata_nodes = {metadata_nodes}")
+                logger.info(f"Retrieved {len(metadata_nodes)} metadata nodes. Node sizes: {[(node.node.id_, len(node.node.text), node.score) for node in metadata_nodes[:5]]}{'...' if len(metadata_nodes) > 5 else ''}")
                 safe_source_id = ""
                 for node in metadata_nodes:
                     logger.info(f"node = {node}")
@@ -1158,6 +1208,7 @@ class HierarchicalKnowledgeBase:
             # Combine results, removing duplicates
             combined_results = text_results.copy()
             seen_texts = set(r[0] for r in text_results)
+            logger.info(f"Combined results before adding metadata: {len(combined_results)}. Sizes: {[(len(r[0]), r[2]) for r in combined_results[:5]]}{'...' if len(combined_results) > 5 else ''}")
             
             for result in metadata_results:
                 if result[0] not in seen_texts and result[0].strip():
@@ -1171,6 +1222,7 @@ class HierarchicalKnowledgeBase:
                 enhanced_results = enhance_search_results(query_text, combined_results, 
                                                           initial_top_k=similarity_top_k,
                                                           final_top_k=final_top_k)
+                logger.info(f"After enhancement: {len(enhanced_results)} results. Sizes: {[(len(r[0]), r[2]) for r in enhanced_results[:5]]}{'...' if len(enhanced_results) > 5 else ''}")
             
             # Add verbatim documents if available
             if verbatim_results:
@@ -1194,7 +1246,7 @@ class HierarchicalKnowledgeBase:
     async def get_relevant_context(self, query_text: str, 
                             similarity_top_k: int = 15,
                             final_top_k: int = 6,
-                            min_score: float = 0.65,
+                            min_score: float = 0.29,
                             include_verbatim: bool = False, search_metadata: bool = True, metadata_only: bool = False) -> str:
         """Get formatted context from relevant nodes.
         

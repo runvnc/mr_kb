@@ -14,6 +14,10 @@ import re
 import csv
 from lib.utils.debug import debug_box
 from .csv_parser import detect_csv_format, parse_csv, generate_column_names, create_column_map, get_csv_preview
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # Dictionary to store processing tasks and their status
 processing_tasks = {}
@@ -842,8 +846,9 @@ async def get_documents(name: str, request: Request):
     """Get list of documents in specific KB"""
     try:
         kb = await get_kb_instance(name)
+        logger.info(f"Getting documents for KB: {name}")
         docs = kb.get_document_info()
-        
+        logger.info(f"Documents found: {len(docs)}")
         # Check if kb has verbatim_docs attribute (for backward compatibility)
         has_verbatim_support = hasattr(kb, 'verbatim_docs')
         
