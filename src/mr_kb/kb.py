@@ -1311,13 +1311,14 @@ class HierarchicalKnowledgeBase:
             
             for text, metadata, score, chunk_size in regular_results:
                 # Extract metadata fields
-                file_name = metadata.get('file_name', 'Unknown')
-                file_type = metadata.get('file_type', 'Unknown')
+                file_name = metadata.get('file_name', '-')
+                file_type = metadata.get('file_type', '-')
+                doc_id = metadata.get('doc_id', '-')
                 creation_date = metadata.get('creation_date', 'Unknown')
                 # Format metadata header
-                context += "| File | Score | Type | Creation Date | Size |\n"
-                context += "|------|------|------|-------------|---------|\n"
-                context += f"|{file_name} | {score: .3f} | {file_type} | {creation_date} | {chunk_size} |\n"
+                context += "| Doc.ID | File | Score | Type | Creation Date | Size |\n"
+                context += "|--------|------|------|------|-------------|---------|\n"
+                context += f"|{doc_id}|{file_name} | {score: .3f} | {file_type} | {creation_date} | {chunk_size} |\n"
                 context += "\n"
                 context += f"{text}\n\n"
                 context += "___\n\n"
