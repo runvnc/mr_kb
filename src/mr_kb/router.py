@@ -993,3 +993,33 @@ async def delete_url_document(name: str, request: Request):
         return JSONResponse({"success": True})
     except Exception as e:
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
+
+
+csv_doc_cache = {}
+
+@router.get("/api/kb/{name}/csv/documents/match")
+async def match_csv_metadata(name: str, field: str, val: str, limit: int = 10, request: Request = None):
+    """Match CSV metadata field to a value and return full document"""
+    try:
+        kb = await get_kb_instance(name)
+        
+        if not hasattr(kb, 'csv_docs'):
+            return JSONResponse({"success": False, 
+                              "message": "This knowledge base was created with an older version and doesn't support CSV documents"}, 
+                              status_code=400)
+        
+        if field in csv_doc_cache:
+            matches = csv_doc_cache[field][val]
+        else:            
+            matches = await kb.match_csv_metadata(field, val, limit)
+            if not field in csv_doc_cache:
+                csv_doc_cache[field] = {}
+            csv_doc_cache[field][val] = matches
+        
+        return JSONResponse({
+            "success": True, 
+            "matches": matches
+        })
+    except Exception as e:
+        return JSONResponse({"success": False, "message": str(e)}, status_code=500)
+

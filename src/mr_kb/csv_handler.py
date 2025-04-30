@@ -626,8 +626,7 @@ class CSVDocumentHandler:
             return []
             
         try:
-            # Check if CSV source exists
-            if not hasattr(self, 'csv_docs') or csv_source_id not in self.csv_docs:
+            if csv_source_id != 'ANY' and (not hasattr(self, 'csv_docs') or csv_source_id not in self.csv_docs):
                 logger.warning(f"CSV source {csv_source_id} not found in csv_docs")
                 raise ValueError(f"CSV source not found: {csv_source_id}")
             
@@ -635,9 +634,12 @@ class CSVDocumentHandler:
             if hasattr(self.kb, 'text_collection') and self.kb.text_collection:
                 # Use ChromaDB collection directly
                 logger.info("Using ChromaDB collection directly to get CSV rows")
-                results = self.kb.text_collection.get(
-                    where={"csv_source_id": csv_source_id}
-                )
+                if csv_source_id == 'ANY' or csv_source_id is None or csv_source_id == '':
+                    results = self.kb.text_collection.get()
+                else:
+                    results = self.kb.text_collection.get(
+                        where={"csv_source_id": csv_source_id}
+                    )
 
                 #results = self.kb.text_collection.get(
                 #    where={"$and": [{"csv_source_id": csv_source_id}, {"is_deleted": {"$ne": True}}]}
@@ -974,7 +976,7 @@ class CSVDocumentHandler:
             
         try:
             # Check if CSV source exists
-            if not hasattr(self, 'csv_docs') or csv_source_id not in self.csv_docs:
+            if csv_source_id != 'ANY' and (not hasattr(self, 'csv_docs') or csv_source_id not in self.csv_docs):
                 logger.warning(f"CSV source {csv_source_id} not found in csv_docs")
                 raise ValueError(f"CSV source not found: {csv_source_id}")
             
@@ -997,12 +999,10 @@ class CSVDocumentHandler:
             
             for text, metadata, score, chunk_size in results:
                 # Check if this result is from the requested CSV source
-                if csv_source_id=="ANY" || metadata.get("csv_source_id") == csv_source_id || csv_source_id="" || csv_source_id==None:
-                    # Skip deleted rows
+                if csv_source_id=="ANY" or metadata.get("csv_source_id") == csv_source_id or csv_source_id=="" or csv_source_id==None:
                     if metadata.get("is_deleted", False):
                         continue
                         
-                    # Skip if we've already seen this doc_id to avoid duplicates
                     csv_doc_id = metadata.get("doc_id", "")
                     if csv_doc_id in seen_doc_ids:
                         continue

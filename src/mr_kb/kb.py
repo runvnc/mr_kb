@@ -1416,4 +1416,17 @@ class HierarchicalKnowledgeBase:
         if not hasattr(self, 'csv_handler'):
             from .csv_handler import CSVDocumentHandler
             self.csv_handler = CSVDocumentHandler(self)
-        return self.csv_handler.get_csv_rows(csv_source_id)        
+        return self.csv_handler.get_csv_rows(csv_source_id)
+
+    async def match_csv_metadata(self, field, val, limit: int = 10) -> List[Dict]:
+        """Search by metadata field in CSV data.
+        
+        Args:
+            field: Field to search in
+            val: Value to match
+            
+        Returns:
+            List of matching rows
+        """
+        results = self.text_collection.get(where={field: val}, limit=limit)
+        return results["documents"]
