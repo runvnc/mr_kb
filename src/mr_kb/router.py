@@ -15,6 +15,7 @@ import csv
 from lib.utils.debug import debug_box
 from .csv_parser import detect_csv_format, parse_csv, generate_column_names, create_column_map, get_csv_preview
 import logging
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -1007,19 +1008,24 @@ async def match_csv_metadata(name: str, field: str, val: str, limit: int = 10, r
             return JSONResponse({"success": False, 
                               "message": "This knowledge base was created with an older version and doesn't support CSV documents"}, 
                               status_code=400)
-        
+       
+        matches = []
         if field in csv_doc_cache:
-            matches = csv_doc_cache[field][val]
+            if val in csv_doc_cache[field]:
+                matches = csv_doc_cache[field][val]
         else:            
             matches = await kb.match_csv_metadata(field, val, limit)
             if not field in csv_doc_cache:
                 csv_doc_cache[field] = {}
             csv_doc_cache[field][val] = matches
-        
+         
         return JSONResponse({
             "success": True, 
-            "matches": matches
+            "matches": matches[:limit]
         })
     except Exception as e:
+        traceback.print_exc()
+        print(e)
+
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
