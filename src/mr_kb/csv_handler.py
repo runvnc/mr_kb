@@ -997,7 +997,7 @@ class CSVDocumentHandler:
             
             for text, metadata, score, chunk_size in results:
                 # Check if this result is from the requested CSV source
-                if metadata.get("csv_source_id") == csv_source_id:
+                if csv_source_id=="ANY" || metadata.get("csv_source_id") == csv_source_id || csv_source_id="" || csv_source_id==None:
                     # Skip deleted rows
                     if metadata.get("is_deleted", False):
                         continue
