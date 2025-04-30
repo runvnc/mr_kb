@@ -1013,6 +1013,9 @@ async def match_csv_metadata(name: str, field: str, val: str, limit: int = 10, r
         if field in csv_doc_cache:
             if val in csv_doc_cache[field]:
                 matches = csv_doc_cache[field][val]
+            else:
+                matches = await kb.match_csv_metadata(field, val, limit)
+                csv_doc_cache[field][val] = matches
         else:            
             matches = await kb.match_csv_metadata(field, val, limit)
             if not field in csv_doc_cache:
