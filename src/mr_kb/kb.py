@@ -822,59 +822,57 @@ class HierarchicalKnowledgeBase:
 
     async def remove_document(self, file_path: str, remove_from_metadata_index: bool = True, remove_from_chroma: bool = True):
         """Remove a document and all its hierarchical nodes from the index."""
-        if not self.index:
+        # Check if ChromaDB collections are initialized
+        if not hasattr(self, 'text_collection') or not self.text_collection:
             raise ValueError("Index not initialized.")
             
         try:
-            debug_box("_________________________________________")
-            print("Ref doc info: ", self.index.ref_doc_info)
-
-            nodes_to_remove = set()
-            #for node_id, node in self.index.docstore.docs.items():
-            for doc_id, doc in self.index.ref_doc_info.items():
-                doc_file_path = doc.metadata.get('file_path', 'Unknown')
-                print(f"Checking doc: {doc_file_path} to match file path: {file_path}")
-
-                if doc_file_path == file_path:
-                    nodes_to_remove.add(doc_id)
-                    print("doc =", doc)
-                    print("doc metadata = ", doc.metadata)
-                    print(f"Removing doc: {doc_id} with matching file path {file_path}")
-                else:
-                    print(f"Did not match. doc metadata was {doc.metadata}")
-        
-            if len(nodes_to_remove) == 0:
-                raise ValueError(f"No docs found for document: {file_path}")
-
-            for doc_id in nodes_to_remove:
-                self.text_index.delete_ref_doc(doc_id, delete_from_docstore=True, delete_from_vectorstore=remove_from_chroma)
-                print("Deleted doc: ", doc_id)
-                
-                # Also remove from metadata index if it exists
-                if remove_from_metadata_index and hasattr(self, 'metadata_index') and self.metadata_index:
-                    # Find and delete corresponding metadata nodes
-                    meta_nodes_to_remove = []
-                    for meta_node_id, meta_node in self.metadata_index.docstore.docs.items():
-                        if meta_node.metadata.get("file_path") == file_path:
-                            meta_nodes_to_remove.append(meta_node_id)
+            logger.info(f"Attempting to remove document directly from ChromaDB: {file_path}")
+            
+            # Define the filter for ChromaDB deletion
+            where_filter = {"file_path": file_path}
+            
+            # Delete from text collection
+            if remove_from_chroma and hasattr(self, 'text_collection') and self.text_collection:
+                try:
+                    logger.info(f"Deleting from text collection where: {where_filter}")
+                    # Get count before deleting for logging
+                    count_before = self.text_collection.count()
+                    matching_docs = self.text_collection.get(where=where_filter, include=[]) # Faster count
+                    num_matching = len(matching_docs['ids'])
+                    logger.info(f"Found {num_matching} text nodes matching file_path: {file_path}")
                     
-                    for meta_node_id in meta_nodes_to_remove:
-                        self.metadata_index.delete_ref_doc(meta_node_id, delete_from_docstore=True, delete_from_vectorstore=remove_from_chroma)
-                        print(f"Deleted metadata node: {meta_node_id}")
+                    if num_matching > 0:
+                        self.text_collection.delete(where=where_filter)
+                        count_after = self.text_collection.count()
+                        logger.info(f"Deleted {count_before - count_after} nodes from text collection for {file_path}")
+                    else:
+                        logger.warning(f"No text nodes found matching file_path: {file_path} in text collection.")
+                except Exception as e:
+                    logger.error(f"Error deleting from text collection for {file_path}: {str(e)}")
+                    # Optionally re-raise or handle
             
-            # Persist updates
-            self.text_index.storage_context.persist(persist_dir=os.path.join(self.persist_dir, "text_index"))
-            # ChromaDB handles vector data persistence, just persist docstore if needed
-            if hasattr(self.text_index, 'docstore'):
-                self.text_index.docstore.persist()
+            # Delete from metadata collection if requested
+            if remove_from_metadata_index and remove_from_chroma and hasattr(self, 'metadata_collection') and self.metadata_collection:
+                try:
+                    logger.info(f"Deleting from metadata collection where: {where_filter}")
+                    # Get count before deleting for logging
+                    count_before = self.metadata_collection.count()
+                    matching_docs = self.metadata_collection.get(where=where_filter, include=[]) # Faster count
+                    num_matching = len(matching_docs['ids'])
+                    logger.info(f"Found {num_matching} metadata nodes matching file_path: {file_path}")
+                    
+                    if num_matching > 0:
+                        self.metadata_collection.delete(where=where_filter)
+                        count_after = self.metadata_collection.count()
+                        logger.info(f"Deleted {count_before - count_after} nodes from metadata collection for {file_path}")
+                    else:
+                        logger.warning(f"No metadata nodes found matching file_path: {file_path} in metadata collection.")
+                except Exception as e:
+                    logger.error(f"Error deleting from metadata collection for {file_path}: {str(e)}")
+                    # Optionally re-raise or handle
             
-            # Persist metadata index if it exists (ChromaDB handles vector data)
-            if hasattr(self, 'metadata_index') and self.metadata_index:
-                if hasattr(self.metadata_index, 'docstore'):
-                    self.metadata_index.docstore.persist()
-
-
-            print("Saved docstore")
+            # Clear LlamaIndex retriever cache as the underlying store has changed
             self._clear_retriever_cache()
         except Exception as e:
             logger.error(f"Failed to remove document: {str(e)}")
