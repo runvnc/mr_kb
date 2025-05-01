@@ -16,6 +16,7 @@ setup(
         "jsonpickle",
         "pandas>=2.0.0",
         "requests",
+        "trafilatura",
         "openpyxl>=3.0.0",
         "python-docx>=0.8.11",
         "PyPDF2>=3.0.0",
