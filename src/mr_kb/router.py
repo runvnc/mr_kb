@@ -1020,14 +1020,16 @@ async def match_csv_metadata(name: str, field: str, val: str, limit: int = 10, r
                 print(f"did not find value in doc cache, searching kb")
                 matches = await kb.match_csv_metadata(field, val, limit)
                 print(f"match results for val {matches}")
-                csv_doc_cache[field][val] = matches
+                if matches is not None and len(matches) > 0:
+                    csv_doc_cache[field][val] = matches
         else:
             print(f"did not find field {field} in csv_doc_cache, call kb method")
             matches = await kb.match_csv_metadata(field, val, limit)
             print(f"matches {matches}")
             if not field in csv_doc_cache:
                 csv_doc_cache[field] = {}
-            csv_doc_cache[field][val] = matches
+            if matches is not None and len(matches) > 0:
+                csv_doc_cache[field][val] = matches
          
         return JSONResponse({
             "success": True, 
