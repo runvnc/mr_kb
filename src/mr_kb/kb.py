@@ -1426,5 +1426,9 @@ class HierarchicalKnowledgeBase:
         Returns:
             List of matching rows
         """
+        print(f"Searching for {field}: {val} in KB")
         results = self.text_collection.get(where={field: val}, limit=limit)
+        print("results:")
+        print(results)
         return results["documents"]
+

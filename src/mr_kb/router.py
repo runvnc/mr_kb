@@ -1010,14 +1010,21 @@ async def match_csv_metadata(name: str, field: str, val: str, limit: int = 10, r
                               status_code=400)
        
         matches = []
+        print("searcing in router")
         if field in csv_doc_cache:
+            print(f"found field {field} in doc cache")
             if val in csv_doc_cache[field]:
+                print(f"found val {val} in doc cache")
                 matches = csv_doc_cache[field][val]
             else:
+                print(f"did not find value in doc cache, searching kb")
                 matches = await kb.match_csv_metadata(field, val, limit)
+                print(f"match results for val {matches}")
                 csv_doc_cache[field][val] = matches
-        else:            
+        else:
+            print(f"did not find field {field} in csv_doc_cache, call kb method")
             matches = await kb.match_csv_metadata(field, val, limit)
+            print(f"matches {matches}")
             if not field in csv_doc_cache:
                 csv_doc_cache[field] = {}
             csv_doc_cache[field][val] = matches
