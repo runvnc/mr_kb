@@ -59,6 +59,29 @@ async def add_csv_row(name: str, source_id: str, request: Request):
         if not hasattr(kb, 'csv_docs'):
             return JSONResponse({"success": False, "message": "This knowledge base was created with an older version and doesn't support CSV documents"}, status_code=400)
         
+        # Get the CSV source configuration to determine which column is the ID column
+        csv_config = kb.csv_docs[source_id].get("config", {})
+        id_column = csv_config.get("id_column")
+        
+        # If we have an ID column defined in the config, try to use the corresponding value from metadata
+        custom_doc_id = None
+        if id_column is not None and new_metadata:
+            # The column in metadata will be named col_X where X is the column index
+            id_col_name = f"col_{id_column}"
+            
+            if id_col_name in new_metadata and new_metadata[id_col_name]:
+                custom_doc_id = new_metadata[id_col_name]
+                print(f"Using {id_col_name} value as doc_id: {custom_doc_id}")
+                
+                # Validate that the ID is unique
+                existing_rows = kb.get_csv_rows(source_id)
+                existing_ids = [row.get("doc_id") for row in existing_rows]
+                if custom_doc_id in existing_ids:
+                    return JSONResponse({
+                        "success": False, 
+                        "message": f"A row with ID '{custom_doc_id}' already exists. Please use a unique ID."
+                    }, status_code=400)
+        
         # Generate a unique document ID
         import uuid
         import datetime
@@ -70,7 +93,7 @@ async def add_csv_row(name: str, source_id: str, request: Request):
         
         # Create a timestamp-based ID with a UUID suffix for uniqueness
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        unique_id = f"{timestamp}-{str(uuid.uuid4())[:8]}"
+        unique_id = custom_doc_id or f"{timestamp}-{str(uuid.uuid4())[:8]}"
         
         # Get the row count to determine the next row index
         rows = kb.get_csv_rows(source_id)

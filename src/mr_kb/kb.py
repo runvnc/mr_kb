@@ -1174,6 +1174,31 @@ class HierarchicalKnowledgeBase:
                 text_search_results = self.text_collection.get(where={"csv_row_id": {"$in": text_ids}})
                 num_results = len(text_search_results["metadatas"])
                 logger.info(f"length of results: {num_results}")
+                
+                # If no results found with csv_row_id, try a fallback search with doc_id
+                # This handles cases where rows were added with inconsistent metadata
+                if num_results == 0 and len(text_ids) > 0:
+                    logger.warning(f"No results found with csv_row_id, trying fallback search with doc_id")
+                    try:
+                        fallback_search_results = self.text_collection.get(where={"doc_id": {"$in": text_ids}})
+                        fallback_num_results = len(fallback_search_results["metadatas"])
+                        logger.info(f"Fallback search found {fallback_num_results} results")
+                        
+                        if fallback_num_results > 0:
+                            # Use the fallback results
+                            text_search_results = fallback_search_results
+                            num_results = fallback_num_results
+                            logger.info(f"Using fallback search results")
+                            
+                            # Log a warning about inconsistent metadata
+                            logger.warning(f"Found rows with inconsistent metadata. These rows may have been added ")
+                            logger.warning(f"with an older version of the add_csv_row function. Consider re-adding ")
+                            logger.warning(f"these rows or rebuilding the index to ensure consistent metadata.")
+                    except Exception as e:
+                        logger.error(f"Error in fallback search: {str(e)}")
+                        # Continue with original (empty) results
+                        pass
+                
                 by_row_id = {}
                 metadata_by_row_id = {}
                 for ii in range(num_results):
@@ -1269,7 +1294,10 @@ class HierarchicalKnowledgeBase:
                                                    min_score, include_verbatim, search_metadata,
                                                    metadata_only)
         if not results:
-            return ""
+            # Return empty tuple with empty string and empty stats
+            empty_stats = {'total_time': datetime.timedelta(0), 'retriever_creation': False, 
+                          'verbatim_docs': 0, 'metadata_search': search_metadata, 'metadata_only': metadata_only}
+            return "", empty_stats
             
         # Separate verbatim and regular results
         verbatim_results = []

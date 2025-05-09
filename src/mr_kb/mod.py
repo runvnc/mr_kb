@@ -201,13 +201,23 @@ async def query_kb_metadata(kb_name: str, match_text: str, top_k: int = 3, conte
     { "query_kb_metadata": { "kb_name": "articles", "match_text": "DOC-12345", "top_k": 1 } }
     """
     kb = await get_kb_instance(kb_name)
-    text, stats = await kb.get_relevant_context(
-        match_text,
-        similarity_top_k=top_k * 2,  # Request more initially for better filtering
-        final_top_k=top_k,
-        search_metadata=True,
-        metadata_only=True  # Only search metadata index
-    )
+    try:
+        result = await kb.get_relevant_context(
+            match_text,
+            similarity_top_k=top_k * 2,  # Request more initially for better filtering
+            final_top_k=top_k,
+            search_metadata=True,
+            metadata_only=True  # Only search metadata index
+        )
+        
+        # Handle both tuple return and string return (for backward compatibility)
+        if isinstance(result, tuple):
+            text, stats = result
+        else:
+            text = result
+    except Exception as e:
+        print(f"Error in query_kb_metadata: {str(e)}")
+        text = ""
     return text
 
 

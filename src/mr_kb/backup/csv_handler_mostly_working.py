@@ -553,21 +553,14 @@ class CSVDocumentHandler:
                 metadata_doc = Document(
                     text=metadata_text,
                     metadata={
-                        "csv_row_id": doc_id,  # This is the ID used for searching
-                        "source_node_id": doc_id,  # Use doc_id for consistency with add_csv_document
+                        "csv_row_id": doc_id,
+                        "source_node_id": node_id,
                         "csv_source_id": csv_source_id,
                         **row_metadata
                     }
                 )
             
             # Process in batches for consistency
-            # Ensure the text document also has csv_row_id set correctly
-            if "csv_row_id" not in row_metadata:
-                row_metadata["csv_row_id"] = doc_id
-                # Update the document with the corrected metadata
-                doc = Document(id_=doc_id, text=text, metadata=row_metadata)
-                nodes = self.kb.node_parser.get_nodes_from_documents([doc])
-            
             batch_docs = [doc]
             batch_size = getattr(self.kb, 'batch_size', 100)  # Default to 100 if not specified
             
@@ -586,7 +579,7 @@ class CSVDocumentHandler:
                 for i in range(0, len(meta_batch_docs), batch_size):
                     batch = meta_batch_docs[i:i+batch_size]
                     meta_nodes = self.kb.simple_node_parser.get_nodes_from_documents(batch)
-                    logger.info(f"Adding metadata batch {i//batch_size + 1}/{(len(meta_batch_docs)-1)//batch_size + 1} with {len(meta_nodes)} nodes")
+                    logger.info(f"Adding metadata batch {i//batch_size + 1}/{(len(meta_batch_docs)-1)//batch_size + 1}")
                     self.kb.metadata_index.insert_nodes(meta_nodes)
                     
                     # No need for progress callback here as this is typically a small operation

@@ -585,19 +585,8 @@ class CsvViewer extends BaseEl {
 
   renderAddRowModal() {
     // Create a template object with empty values for a new row
-    const newRowTemplate = {
-      text: '',
-    };
-
-    // Add empty fields for all columns that start with col_
-    if (this.rows.length > 0) {
-      const sampleRow = this.rows[0];
-      for (const key in sampleRow) {
-        if (key.startsWith('col_')) {
-          newRowTemplate[key] = '';
-        }
-      }
-    }
+    // Use this.newRow directly to ensure we're using the most up-to-date column structure
+    const newRowTemplate = this.newRow;
 
     return html`
       <div class="modal" @click=${this.closeAddRowModal}>
@@ -639,7 +628,7 @@ class CsvViewer extends BaseEl {
     this.editingRow = { ...row };
   }
 
-  showAddRowModal() {
+  async showAddRowModal() {
     this.addingRow = true;
     this.newRow = { text: '' };
     
@@ -650,6 +639,73 @@ class CsvViewer extends BaseEl {
         if (key.startsWith('col_')) {
           this.newRow[key] = '';
         }
+      }
+    }
+    
+    // If rows are empty, try to load them first
+    if (this.rows.length === 0) {
+      try {
+        this.error = '';
+        const loadingIndicator = this.shadowRoot?.querySelector('.loading');
+        if (loadingIndicator) loadingIndicator.style.display = 'block';
+        
+        // First try to get the CSV source configuration - this is more efficient
+        // than loading all rows, especially for large CSV files
+        console.log('Fetching CSV source configuration for Add Row form');
+        try {
+          const configResponse = await fetch(`/api/kb/${this.kbName}/csv/sources`);
+          const configResult = await configResponse.json();
+          
+          if (configResult.success && configResult.data && configResult.data[this.sourceId]) {
+            const sourceConfig = configResult.data[this.sourceId].config;
+            console.log('Found source config:', sourceConfig);
+            
+            // If we have column configuration, create form fields based on it
+            if (sourceConfig && sourceConfig.key_metadata_columns) {
+              // Add fields for key metadata columns
+              for (const colIdx of sourceConfig.key_metadata_columns) {
+                const colName = `col_${colIdx}`;
+                if (!this.newRow[colName]) {
+                  this.newRow[colName] = ''; 
+                }
+              }
+            }
+            
+            // Now that we have the column structure, show the modal
+            this.requestUpdate();
+          }
+        } catch (configError) {
+          console.error('Error fetching CSV source configuration:', configError);
+          
+          // Fall back to loading rows if we couldn't get the configuration
+          console.log('Falling back to loading rows for column structure');
+          try {
+            const response = await fetch(`/api/kb/${this.kbName}/csv/${this.sourceId}/rows`);
+            const result = await response.json();
+            
+            if (result.success && result.data.length > 0) {
+              this.rows = result.data;
+              
+              // Now that we have rows, add column fields to the newRow template
+              const sampleRow = this.rows[0];
+              for (const key in sampleRow) {
+                if (key.startsWith('col_') && !this.newRow[key]) {
+                  this.newRow[key] = '';
+                }
+              }
+            }
+            
+            // Now that we have the column structure, show the modal
+            this.requestUpdate();
+          } catch (rowError) {
+            console.error('Error loading rows:', rowError);
+          }
+          this.requestUpdate();
+        }
+        
+        if (loadingIndicator) loadingIndicator.style.display = 'none'; 
+      } catch (error) {
+        console.error('Error loading rows for add form:', error);
       }
     }
   }
@@ -848,7 +904,7 @@ class CsvViewer extends BaseEl {
         return true;
       }
     };
-    
+
     // Poll every second until complete or error
     while (!(await checkStatus())) {
       await new Promise(resolve => setTimeout(resolve, 1000));
