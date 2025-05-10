@@ -194,6 +194,7 @@ class KbManagerCsv extends BaseEl {
     this.loading = true;
     this.error = '';
     
+    this.selectedSourceId = null;
     try {
       const response = await fetch(`/api/kb/${this.kbName}/csv/sources`);
       const result = await response.json();

@@ -316,6 +316,8 @@ class CsvViewer extends BaseEl {
   connectedCallback() {
     super.connectedCallback();
     if (this.kbName && this.sourceId) {
+      // Only load data if we have both kbName and sourceId
+      this.error = ''; // Clear any previous errors
       if (this.searchMode) {
         this.searchRows(''); // Use search with empty query to get limited rows
       } else {
@@ -326,7 +328,13 @@ class CsvViewer extends BaseEl {
 
   updated(changedProperties) {
     if (changedProperties.has('kbName') || changedProperties.has('sourceId')) {
-      if (this.kbName && this.sourceId) {
+      // Reset error state when source changes
+      this.error = '';
+      
+      // Clear rows when source is deselected
+      if (!this.sourceId) {
+        this.rows = [];
+      } else if (this.kbName && this.sourceId) {
         if (this.searchMode) {
           this.searchRows(''); // Use search with empty query to get limited rows
         } else {
@@ -338,6 +346,18 @@ class CsvViewer extends BaseEl {
 
   async searchRows(query) {
     // Don't show full loading state for search to avoid disrupting typing
+    // Prevent searching if no source is selected
+    if (!this.sourceId) {
+      // Clear any existing search results when no source is selected
+      this.rows = [];
+      this.searchQuery = '';
+      if (query) {
+        this.error = 'Please select a CSV source first.';
+      }
+      this.error = 'Please select a CSV source first.';
+      return;
+    }
+    
     const searchElement = this.shadowRoot?.querySelector('.search-input');
     const searchHasFocus = searchElement === document.activeElement;
     
@@ -384,6 +404,12 @@ class CsvViewer extends BaseEl {
   }
 
   async loadData() {
+    // Prevent loading data if no source is selected
+    if (!this.sourceId) {
+      this.error = 'Please select a CSV source first.';
+      return;
+    }
+    
     this.loading = true;
     this.error = '';
     
@@ -418,6 +444,13 @@ class CsvViewer extends BaseEl {
     }
 
     const handleSearchInput = (e) => {
+      // Prevent search if no source is selected
+      if (!this.sourceId) {
+        this.error = 'Please select a CSV source first.';
+        e.target.value = ''; // Clear the input
+        return;
+      }
+      
       const query = e.target.value;
       this.searchQuery = query;
       
@@ -437,6 +470,12 @@ class CsvViewer extends BaseEl {
     };
     
     const toggleSearchMode = () => {
+      // Prevent toggling if no source is selected
+      if (!this.sourceId) {
+        this.error = 'Please select a CSV source first.';
+        return;
+      }
+      
       // Toggle search mode
       this.searchInProgress = false;
       this.searchMode = !this.searchMode;
@@ -455,26 +494,37 @@ class CsvViewer extends BaseEl {
       <div class="csv-viewer">
         <h3>
           <span>CSV Data Viewer</span>
-          <div class="actions">
-            <button class="primary" @click=${this.showAddRowModal}>Add Row</button>
-            <button @click=${this.refresh}>Refresh</button>
-          </div>
+          <pre>${this.sourceId}</pre>
+          ${this.sourceId ? html`
+            <div class="actions">
+              <button class="primary" @click=${this.showAddRowModal}>Add Row</button>
+              <button @click=${this.refresh}>Refresh</button>
+            </div>
+          ` : ''}
         </h3>
+        
         
         ${this.error ? html`<div class="error">${this.error}</div>` : ''}
         
-        ${isSearching ? html`<div class="search-status">Searching...</div>` : ''}
+        ${!this.sourceId ? html`
+          <div class="error">
+            Please select a CSV source from the list above before performing any operations.
+          </div>
+        ` : html`${isSearching && this.sourceId ? html`<div class="search-status">Searching...</div>` : ''}`}
+        
+        ${this.sourceId ? html`
         <div class="search-container">
           <input 
             type="text" 
             class="search-input" 
             placeholder="Search by metadata or content..." 
+            ?disabled=${!this.sourceId}
             .value=${this.searchQuery}
             @input=${handleSearchInput}
           />
           <div class="toggle-container">
-            <span class="toggle-label">${this.searchMode ? 'Search Mode' : 'Show All'}</span>
-            <button @click=${toggleSearchMode}>
+            <span class="toggle-label">${this.searchMode ? 'Search Mode' : 'Show All Mode'}</span>
+            <button @click=${toggleSearchMode} ?disabled=${!this.sourceId}>
               Switch to ${this.searchMode ? 'Show All Mode' : 'Search Mode'}
             </button>
           </div>
@@ -531,7 +581,7 @@ class CsvViewer extends BaseEl {
                 <input type="file" accept=".csv" @change=${this.handleFileSelected}>
               </div>
               
-              ${this.selectedFile ? html`
+              ${this.selectedFile && this.sourceId ? html`
                 <span class="file-name">${this.selectedFile.name}</span>
               ` : ''}
               
@@ -543,7 +593,7 @@ class CsvViewer extends BaseEl {
         ` : html`
           <p>No rows found in this CSV source.</p>
         `}
-      </div>
+      </div>` : ''}
       
       ${this.editingRow ? this.renderEditModal() : ''}
       ${this.addingRow ? this.renderAddRowModal() : ''}
@@ -555,7 +605,7 @@ class CsvViewer extends BaseEl {
       <div class="modal" @click=${this.closeModal}>
         <div class="modal-content" @click=${e => e.stopPropagation()}>
           <div class="modal-header">
-            <h3>Edit Row</h3>
+            <h3>Edit Row${this.editingRow ? ` - ${this.editingRow.doc_id}` : ''}</h3>
             <button class="icon" @click=${this.closeModal}>✕</button>
           </div>
           
@@ -592,7 +642,7 @@ class CsvViewer extends BaseEl {
       <div class="modal" @click=${this.closeAddRowModal}>
         <div class="modal-content" @click=${e => e.stopPropagation()}>
           <div class="modal-header">
-            <h3>Add New Row</h3>
+            <h3>Add New Row${this.sourceId ? ` to ${this.sourceId}` : ''}</h3>
             <button class="icon" @click=${this.closeAddRowModal}>✕</button>
           </div>
           
@@ -613,7 +663,7 @@ class CsvViewer extends BaseEl {
           
           <div class="modal-footer">
             <button @click=${this.closeAddRowModal}>Cancel</button>
-            <button class="primary" @click=${this.addRow}>Add Row</button>
+            <button class="primary" @click=${this.addRow} ?disabled=${!this.sourceId}>Add Row</button>
           </div>
         </div>
       </div>
@@ -621,14 +671,28 @@ class CsvViewer extends BaseEl {
   }
 
   refresh() {
-    //this.loadData();
+    if (this.sourceId) {
+      this.loadData();
+    }
   }
 
   editRow(row) {
+    // Prevent editing rows if no source is selected
+    if (!this.sourceId) {
+      this.error = 'Please select a CSV source first.';
+      return;
+    }
+    
     this.editingRow = { ...row };
   }
 
   async showAddRowModal() {
+    // Prevent adding rows if no source is selected
+    if (!this.sourceId) {
+      this.error = 'Please select a CSV source first.';
+      return;
+    }
+    
     this.addingRow = true;
     this.newRow = { text: '' };
     
@@ -728,14 +792,29 @@ class CsvViewer extends BaseEl {
   }
 
   handleAddRowTextChange(e) {
+    // Prevent changes if no source is selected
+    if (!this.sourceId) {
+      this.error = 'Please select a CSV source first.';
+      return;
+    }
     this.newRow = { ...this.newRow, text: e.target.value };
   }
 
   handleAddRowMetadataChange(key, value) {
+    // Prevent changes if no source is selected
+    if (!this.sourceId) {
+      this.error = 'Please select a CSV source first.';
+      return;
+    }
     this.newRow = { ...this.newRow, [key]: value };
   }
 
   handleFileSelected(e) {
+    // Prevent file selection if no source is selected
+    if (!this.sourceId) {
+      this.error = 'Please select a CSV source first.';
+      return;
+    }
     this.selectedFile = e.target.files[0];
   }
 
@@ -777,6 +856,11 @@ class CsvViewer extends BaseEl {
   }
 
   async addRow() {
+    // Prevent adding rows if no source is selected
+    if (!this.sourceId) {
+      this.error = 'Please select a CSV source first.';
+      return;
+    }
     if (!this.newRow || !this.newRow.text) {
       this.error = 'Text content is required';
       return;
@@ -819,6 +903,12 @@ class CsvViewer extends BaseEl {
   }
 
   async deleteRow(row) {
+    // Prevent deleting rows if no source is selected
+    if (!this.sourceId) {
+      this.error = 'Please select a CSV source first.';
+      return;
+    }
+    
     if (!confirm(`Are you sure you want to delete the row with ID "${row.doc_id}"?`)) {
       return;
     }
@@ -844,6 +934,11 @@ class CsvViewer extends BaseEl {
   }
 
   async syncCsv() {
+    // Prevent syncing if no source is selected
+    if (!this.sourceId) {
+      this.error = 'Please select a CSV source first.';
+      return;
+    }
     if (!this.selectedFile) {
       return;
     }

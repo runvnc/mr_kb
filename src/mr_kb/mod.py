@@ -206,6 +206,7 @@ async def query_kb_metadata(kb_name: str, match_text: str, top_k: int = 3, conte
             match_text,
             similarity_top_k=top_k * 2,  # Request more initially for better filtering
             final_top_k=top_k,
+            min_score=0.0,
             search_metadata=True,
             metadata_only=True  # Only search metadata index
         )

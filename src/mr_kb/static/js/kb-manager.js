@@ -619,7 +619,7 @@ class KnowledgeBaseManager extends BaseEl {
                   ${this.urlStatus}
                 </div>
               ` : ''}
-              ` : html`<kb-manager-csv .kbName=${this.selectedKb}></kb-manager-csv>`}
+              ` : html`<kb-manager-csv .selectedSourceId=${undefined} .kbName=${this.selectedKb}></kb-manager-csv>`}
             </div>
 
             <!-- File Uploader Component -->
