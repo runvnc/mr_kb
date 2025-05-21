@@ -24,6 +24,7 @@ dependencies = [
     "requests",
     "pandas>=2.0.0",
     "openpyxl>=3.0.0",
+    "pyarrow",
     "python-docx>=0.8.11",
     "llama-index-vector-stores-chroma"
 ]
