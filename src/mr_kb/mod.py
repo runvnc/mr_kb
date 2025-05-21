@@ -152,7 +152,7 @@ async def refresh_url_in_kb(name: str, url_or_hash: str):
         
     return await kb.refresh_url_document(url_hash)
 @command()
-async def query_kb(kb_name: str, match_text: str, context=None):
+async def query_kb(kb_name: str, match_text: str, max_results=15, context=None):
     """Query a specific knowledge base
     
     Params:
@@ -163,6 +163,8 @@ async def query_kb(kb_name: str, match_text: str, context=None):
                                 This will be converted to an embedding and 
                                 the vector index will be searched for similar meaning
                                 blocks of text.
+
+        max_results - Integer
 
     Note: The match_text should not necessarily just be a simple phrase or question.
           If possible, try to construct a snippet that might have a similar semantic embedding
@@ -176,7 +178,7 @@ async def query_kb(kb_name: str, match_text: str, context=None):
     text, stats = await kb.get_relevant_context(
         match_text,
         similarity_top_k=15,
-        final_top_k=15,
+        final_top_k=max_results,
         search_metadata=True
     )
     return text
