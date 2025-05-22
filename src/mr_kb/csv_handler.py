@@ -335,7 +335,7 @@ class CSVDocumentHandler:
 
             del existing_metadata["_node_content"]
             logger.info(f"Updated metadata: {existing_metadata}")
-            updated_doc = Document(text=new_text, metadata=existing_metadata)
+            updated_doc = Document(id_=doc_id, text=new_text, metadata=existing_metadata)
             
             logger.info(f"Deleting existing node with ID {node_id_to_update}")
             self.kb.text_index.delete_nodes(
@@ -422,81 +422,57 @@ class CSVDocumentHandler:
             raise ValueError("Index not initialized.")
             
         try:
-            # Check if CSV source exists
             if csv_source_id not in self.csv_docs:
                 raise ValueError(f"CSV source not found: {csv_source_id}")
             
-            # Find the document in the index
-            node_id_to_update = None
-            for node_id, node in self.kb.text_index.docstore.docs.items():
-                if (node.metadata.get("csv_source_id") == csv_source_id and 
-                    node.metadata.get("doc_id") == doc_id):
-                    node_id_to_update = node_id
-                    break
-            
+            safe_source_id = re.sub(r'[^\w\-\.]', '_', csv_source_id)  # Make filename safe
+            results = self.kb.text_collection.get(
+                where={"$and": [{"csv_source_id": csv_source_id},
+                {"doc_id": doc_id},
+                {"is_deleted": {"$ne": True}}]}
+            )
+            existing_metadata = self.kb.metadata_collection.get(
+                where={"csv_row_id": doc_id}
+            )
+            print(f"existing metadata: {existing_metadata}")
+
+            logger.info(f"Query results: {results}")
+            if not results:
+                raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
+
+            node_id_to_update = results["ids"][0]
+            logger.info(f"Found node ID to delete: {node_id_to_update}")
+           
             if not node_id_to_update:
                 raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
+            Settings.chunk_size = 1024
+          
+            logger.info(f"Deleting existing node with ID {node_id_to_update}")
+            self.kb.text_index.delete_nodes(
+                [node_id_to_update],
+                delete_from_docstore=True
+            )
+            results = self.kb.text_collection.delete(
+                ids=[doc_id]
+            )
+            print(f"deleted from text collection: {results}")
+
+            metadata_id = existing_metadata["ids"][0]
+
+            self.kb.metadata_index.delete_nodes(
+                [metadata_id], delete_from_docstore=True
+            )
+
+            results = self.kb.metadata_collection.delete(
+                where={"doc_id": doc_id}
+            )
+            self.kb.text_index.storage_context.persist(persist_dir=os.path.join(self.kb.persist_dir, "text_index"))
+            if hasattr(self.kb, 'metadata_index'):
+                self.kb.metadata_index.storage_context.persist(persist_dir=os.path.join(self.kb.persist_dir, "metadata_index"))
+ 
+            print(f"deleted from metadata collection and index (supposedly)")
             
-            # Get the existing node to update its metadata
-            existing_node = self.kb.text_index.docstore.docs[node_id_to_update]
-            existing_metadata = existing_node.metadata.copy()
-            
-            # Mark as deleted in metadata
-            existing_metadata["is_deleted"] = True
-            
-            # Create a new document with empty text but preserved metadata
-            # We use empty text so it won't be retrieved in searches
-            updated_doc = Document(text="", metadata=existing_metadata)
-            
-            # Update index atomically
-            from .kb import atomic_index_update
-            with atomic_index_update(self.kb):
-                # Delete the existing node
-                self.kb.text_index.delete_ref_doc(node_id_to_update, delete_from_docstore=True)
-                
-                # Add the updated document with empty text but preserved metadata
-                nodes = self.kb.node_parser.get_nodes_from_documents([updated_doc])
-                
-                # Process in batches for consistency
-                batch_size = getattr(self.kb, 'batch_size', 100)  # Default to 100 if not specified
-                
-                # Since this is typically a single document, we'll just process it directly
-                # But we maintain the batch structure for consistency with other methods
-                for i in range(0, len(nodes), batch_size):
-                    batch = nodes[i:i+batch_size]
-                    logger.info(f"Adding deleted row batch {i//batch_size + 1}/{(len(nodes)-1)//batch_size + 1}")
-                    self.kb.text_index.insert_nodes(batch)
-                
-                # Also update the metadata index
-                if hasattr(self.kb, 'metadata_index'):
-                    # Find and delete the corresponding metadata node
-                    meta_node_id_to_update = None
-                    for meta_node_id, meta_node in self.kb.metadata_index.docstore.docs.items():
-                        if (meta_node.metadata.get("csv_source_id") == csv_source_id and 
-                            meta_node.metadata.get("csv_row_id") == doc_id):
-                            meta_node_id_to_update = meta_node_id
-                            break
-                    
-                    if meta_node_id_to_update:
-                        self.kb.metadata_index.delete_ref_doc(meta_node_id_to_update, delete_from_docstore=True)
-                
-                # Persist updates
-                self.kb.text_index.storage_context.persist(persist_dir=os.path.join(self.kb.persist_dir, "text_index"))
-                if hasattr(self.kb, 'metadata_index'):
-                    self.kb.metadata_index.storage_context.persist(persist_dir=os.path.join(self.kb.persist_dir, "metadata_index"))
-                
-                self._clear_retriever_cache()
-            
-            # Update CSV source metadata
-            self.csv_docs[csv_source_id]["row_count"] = self.csv_docs[csv_source_id].get("row_count", 0) - 1
-            
-            # Save the updated CSV docs index
-            with open(self.csv_docs_index_path, 'w') as f:
-                json.dump(self.csv_docs, f, indent=2)
-            
-            logger.info(f"Marked row with document ID {doc_id} as deleted in CSV source {csv_source_id}")
-            return True
-            
+
         except Exception as e:
             logger.error(f"Failed to delete CSV row: {str(e)}")
             from .kb import DocumentProcessingError
