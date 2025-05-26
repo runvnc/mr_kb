@@ -10,7 +10,8 @@ DEFAULT_PROXIMITY_WEIGHT = 0.3  # Weight for term proximity component
 DEFAULT_PHRASE_WEIGHT = 0.3     # Weight for phrase matching component
 
 # Default thresholds and limits
-DEFAULT_MIN_SCORE = 0.65        # Minimum score to include in results
+#DEFAULT_MIN_SCORE = 0.65        # Minimum score to include in results
+DEFAULT_MIN_SCORE = 0
 DEFAULT_INITIAL_TOP_K = 15      # Number of initial results to consider
 DEFAULT_FINAL_TOP_K = 6         # Number of results to return after enhancement
 

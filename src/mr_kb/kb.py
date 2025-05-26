@@ -256,7 +256,7 @@ class HierarchicalKnowledgeBase:
             self.text_index = VectorStoreIndex.from_vector_store(self.text_vector_store, embed_model=self.embed_model)
             # metadata
             self.metadata_index = VectorStoreIndex.from_vector_store(self.metadata_vector_store, embed_model=self.embed_model)
-            self.index = self.text_index  # For backward compatibility
+            self.index = self.text_index
             return True
         
         # If no index files exist at all, return False
@@ -1084,7 +1084,7 @@ class HierarchicalKnowledgeBase:
         print("Cleared retriever cache")
 
     @dispatcher.span
-    async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15, final_top_k: int = 6, min_score: float = 0.29, include_verbatim: bool = True, search_metadata: bool = True, metadata_only: bool = False):
+    async def retrieve_relevant_nodes(self, query_text: str, similarity_top_k: int = 15, final_top_k: int = 6, min_score: float = 0.0, include_verbatim: bool = True, search_metadata: bool = True, metadata_only: bool = False):
         """Get raw retrieval results without LLM synthesis.
         
         Returns:
@@ -1269,7 +1269,7 @@ class HierarchicalKnowledgeBase:
     async def get_relevant_context(self, query_text: str, 
                             similarity_top_k: int = 15,
                             final_top_k: int = 6,
-                            min_score: float = 0.29,
+                            min_score: float = 0.0,
                             include_verbatim: bool = False, search_metadata: bool = True, metadata_only: bool = False) -> str:
         """Get formatted context from relevant nodes.
         

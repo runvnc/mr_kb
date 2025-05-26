@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import datetime
+import traceback
 import re
 from llama_index.core.indices import VectorStoreIndex
 from typing import Dict, List, Optional, Callable
@@ -308,7 +309,11 @@ class CSVDocumentHandler:
             # Check if CSV source exists
             if csv_source_id not in self.csv_docs:
                 raise ValueError(f"CSV source not found: {csv_source_id}")
-            
+           
+            await self.delete_csv_row(csv_source_id, doc_id)
+            await self.add_csv_row(csv_source_id, doc_id, new_text, 0, new_metadata)
+            return True
+
             safe_source_id = re.sub(r'[^\w\-\.]', '_', csv_source_id)  # Make filename safe
             results = self.kb.text_collection.get(
                 where={"$and": [{"csv_source_id": csv_source_id},
@@ -317,17 +322,22 @@ class CSVDocumentHandler:
             )
 
             logger.info(f"Query results: {results}")
-            if not results:
+            if not results or not results.get("ids"):
                 raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
 
-            node_id_to_update = results["ids"][0]
-            logger.info(f"Found node ID to update: {node_id_to_update}")
+            logger.info(f"Query results: {results}")
+            if not results:
+                raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
+            # Get ALL node IDs that match this doc_id (there might be multiple due to chunking)
+            node_ids_to_update = results["ids"]
+            logger.info(f"Found {len(node_ids_to_update)} node(s) to update: {node_ids_to_update}")
            
-            if not node_id_to_update:
+            if not node_ids_to_update:
                 raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
             Settings.chunk_size = 1024
             
-            existing_metadata = results["metadatas"][0]
+            # Use metadata from first node (they should all be the same)
+            existing_metadata = results["metadatas"][0] if results["metadatas"] else {}
             csv_row_id = existing_metadata["csv_row_id"]
 
             logger.info(f"New metadata: {new_metadata}")
@@ -337,12 +347,18 @@ class CSVDocumentHandler:
             logger.info(f"Updated metadata: {existing_metadata}")
             updated_doc = Document(id_=doc_id, text=new_text, metadata=existing_metadata)
             
-            logger.info(f"Deleting existing node with ID {node_id_to_update}")
+            # Delete ALL existing nodes for this doc_id
             self.kb.text_index.delete_nodes(
-                [node_id_to_update],
+                [node_ids_to_update],
                 delete_from_docstore=True
             )
-
+            
+            # Delete ALL matching entries from ChromaDB text collection using where clause
+            logger.info(f"Deleting all entries from text collection where csv_source_id={csv_source_id} and doc_id={doc_id}")
+            self.kb.text_collection.delete(
+                where={"$and": [{"csv_source_id": csv_source_id}, {"doc_id": doc_id}]}
+            )
+            
             # Add the updated document - use batch processing for consistency
             batch_docs = [updated_doc]
             batch_size = getattr(self.kb, 'batch_size', 100)  # Default to 100 if not specified
@@ -351,14 +367,14 @@ class CSVDocumentHandler:
             for i in range(0, len(batch_docs), batch_size):
                 batch = batch_docs[i:i+batch_size]
                 nodes = self.kb.node_parser.get_nodes_from_documents(batch)
-                logger.info(f"Adding updated document batch with ID {node_id_to_update}")
+                logger.info(f"Adding updated document batch for doc_id {doc_id}")
                 self.kb.text_index.insert_nodes(nodes)
             
             # Get node ID from the first batch
             nodes = self.kb.node_parser.get_nodes_from_documents([updated_doc])
             node_id = nodes[0].id_ if nodes else None
             Settings.chunk_size = 1024
-            logger.info(f"Inserted updated document with ID {node_id_to_update}")
+            logger.info(f"Inserted updated document with new node ID {node_id}")
             logger.info(f"Finding existing metadata node")
             logger.info(results['documents'])
             logger.info('-----------------------------------')
@@ -370,15 +386,25 @@ class CSVDocumentHandler:
             )
 
             logger.info(f"Query results: {results}")
-            if not results:
+            if not results or not results.get("ids"):
                 raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
 
-            meta_node_id_to_update = results["ids"][0]
+            # Get ALL metadata node IDs (there might be multiple)
+            meta_node_ids_to_update = results["ids"]
+            logger.info(f"Found {len(meta_node_ids_to_update)} metadata node(s) to update")
  
-            if meta_node_id_to_update:
+            # Delete all existing metadata nodes
+            for meta_node_id in meta_node_ids_to_update:
+                logger.info(f"Deleting metadata node with ID {meta_node_id}")
                 self.kb.metadata_index.delete_nodes(
-                    [node_id_to_update],
+                    [meta_node_id],
                     delete_from_docstore=True
+                )
+            
+            # Delete ALL matching entries from metadata collection using where clause
+            logger.info(f"Deleting all entries from metadata collection where csv_row_id={doc_id}")
+            self.kb.metadata_collection.delete(
+                where={"csv_row_id": doc_id}
             )
             
             metadata_text = self._encode_metadata_for_indexing(existing_metadata)
@@ -417,7 +443,6 @@ class CSVDocumentHandler:
             raise DocumentProcessingError(f"CSV row update failed: {str(e)}") from e
             
     async def delete_csv_row(self, csv_source_id: str, doc_id: str):
-        """Mark a row as deleted rather than removing it completely"""
         if not hasattr(self.kb, 'text_index') or not self.kb.text_index:
             raise ValueError("Index not initialized.")
             
@@ -428,32 +453,50 @@ class CSVDocumentHandler:
             safe_source_id = re.sub(r'[^\w\-\.]', '_', csv_source_id)  # Make filename safe
             results = self.kb.text_collection.get(
                 where={"$and": [{"csv_source_id": csv_source_id},
-                {"doc_id": doc_id},
-                {"is_deleted": {"$ne": True}}]}
+                {"doc_id": doc_id}]}
             )
             existing_metadata = self.kb.metadata_collection.get(
                 where={"csv_row_id": doc_id}
             )
             print(f"existing metadata: {existing_metadata}")
 
+            try:
+                self.kb.metadata_collection.delete(
+                    ids=existing_metadata["ids"]
+                )
+            except Exception as e:
+                pass
+
+            try:
+                self.kb.text_collection.delete(
+                    ids=results["ids"]
+                 )
+            except Exception as e:
+                pass
+            
+            self._clear_retriever_cache()
+
+            return
+
             logger.info(f"Query results: {results}")
-            if not results:
+            if not results or not results.get("ids"):
                 raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
 
-            node_id_to_update = results["ids"][0]
-            logger.info(f"Found node ID to delete: {node_id_to_update}")
+            # Get ALL node IDs that match this doc_id (there might be multiple due to chunking)
+            node_ids_to_delete = results["ids"]
+            logger.info(f"Found {len(node_ids_to_delete)} node(s) to delete: {node_ids_to_delete}")
            
-            if not node_id_to_update:
+            if not node_ids_to_delete:
                 raise ValueError(f"Row with document ID {doc_id} not found in CSV source {csv_source_id}")
             Settings.chunk_size = 1024
           
-            logger.info(f"Deleting existing node with ID {node_id_to_update}")
             self.kb.text_index.delete_nodes(
-                [node_id_to_update],
+                node_ids_to_delete,
                 delete_from_docstore=True
             )
+            
             results = self.kb.text_collection.delete(
-                ids=[doc_id]
+                ids=node_ids_to_delete
             )
             print(f"deleted from text collection: {results}")
 
@@ -463,18 +506,24 @@ class CSVDocumentHandler:
                 [metadata_id], delete_from_docstore=True
             )
 
-            results = self.kb.metadata_collection.delete(
-                where={"doc_id": doc_id}
-            )
+            # Explicitly delete from metadata docstore as well
+            if hasattr(self.kb.metadata_index, 'docstore') and hasattr(self.kb.metadata_index.docstore, 'docs'):
+                if metadata_id in self.kb.metadata_index.docstore.docs:
+                    del self.kb.metadata_index.docstore.docs[metadata_id]
+                    logger.info(f"Explicitly deleted node {metadata_id} from metadata docstore")
+            
             self.kb.text_index.storage_context.persist(persist_dir=os.path.join(self.kb.persist_dir, "text_index"))
             if hasattr(self.kb, 'metadata_index'):
                 self.kb.metadata_index.storage_context.persist(persist_dir=os.path.join(self.kb.persist_dir, "metadata_index"))
+            
+            self._clear_retriever_cache()
  
             print(f"deleted from metadata collection and index (supposedly)")
             
 
         except Exception as e:
-            logger.error(f"Failed to delete CSV row: {str(e)}")
+            trace = traceback.format_exc()
+            logger.error(f"Failed to delete CSV row: {str(e)}\n\n{trace}")
             from .kb import DocumentProcessingError
             raise DocumentProcessingError(f"CSV row deletion failed: {str(e)}") from e
             
@@ -656,6 +705,7 @@ class CSVDocumentHandler:
                     
                     rows.append(row)
             else:
+                return []
                 # Fallback to using docstore if ChromaDB collection is not available
                 logger.info("Falling back to docstore to get CSV rows")
                 rows = []

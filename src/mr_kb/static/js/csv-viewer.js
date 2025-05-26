@@ -923,7 +923,7 @@ class CsvViewer extends BaseEl {
       const result = await response.json();
       
       if (result.success) {
-        //this.loadData(); // Refresh the data
+        this.loadData(); // Refresh the data
       } else {
         this.error = result.message || 'Failed to delete row';
       }
