@@ -76,9 +76,9 @@ class KbSettings extends BaseEl {
     this.kbs = [];
     this.selectedKbs = [];
     this.loading = true;
-    this.debounceTimer = null;
-    this.observer = null;
     this.agentName = '';
+    this.boundHandleAgentSelected = this.handleAgentSelected.bind(this);
+    this.eventListenersSetup = false;
   }
 
   connectedCallback() {
@@ -88,37 +88,83 @@ class KbSettings extends BaseEl {
     } catch (error) {
       console.error('Error loading agent name:', error);
     }
-    this.initializeAgentObserver();
+    // Delay setup to ensure all components are ready
+    setTimeout(() => {
+      this.setupEventListeners();
+    }, 100);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    if (this.observer) {
-      this.observer.disconnect();
+    this.removeEventListeners();
+  }
+
+  setupEventListeners() {
+    if (this.eventListenersSetup) {
+      console.log('Event listeners already set up for kb-settings');
+      return;
+    }
+    
+    console.log('%c Setting up event listeners for kb-settings', "color: blue; background: yellow;");
+    
+    // Listen for agent-selected events from the agent-form
+    const agentEditor = document.querySelector('agent-editor');
+    if (agentEditor && agentEditor.shadowRoot) {
+      const agentForm = agentEditor.shadowRoot.querySelector('agent-form');
+      if (agentForm) {
+        agentForm.addEventListener('agent-selected', this.boundHandleAgentSelected);
+        console.log('Added agent-selected event listener to agent-form');
+        this.eventListenersSetup = true;
+      } else {
+        console.warn('Could not find agent-form in agent-editor shadow root');
+        // Try again later
+        setTimeout(() => {
+          this.setupEventListeners();
+        }, 500);
+      }
+    } else {
+      console.warn('Could not find agent-editor or its shadow root');
+      // Try again later
+      setTimeout(() => {
+        this.setupEventListeners();
+      }, 500);
     }
   }
 
-  initializeAgentObserver() {
-    this.observer = new MutationObserver((mutations) => {
-        console.log('kb settings mutation observed')
-        const agentEditor = document.querySelector('agent-editor');
-        const agentForm = agentEditor.shadowRoot.querySelector('agent-form');
-        if (agentForm.agent && agentForm.agent.name) {
-          const newAgentName = agentForm.agent.name;
-          if (newAgentName && newAgentName !== this.agentName) {
-            console.log(`Agent changed from ${this.agentName} to ${newAgentName}`);
-            this.agentName = newAgentName;
-            this.fetchKnowledgeBases();
-            this.fetchAgentKbSettings();
-          }
-        }
-      })
-    console.log("Observing agent-editor")
-    this.observer.observe(document.querySelector('agent-editor'), {
-      attributes: true
-    });
-   
-    console.log("Observed agent-editor")
+  removeEventListeners() {
+    if (!this.eventListenersSetup) return;
+    
+    const agentEditor = document.querySelector('agent-editor');
+    if (agentEditor && agentEditor.shadowRoot) {
+      const agentForm = agentEditor.shadowRoot.querySelector('agent-form');
+      if (agentForm) {
+        agentForm.removeEventListener('agent-selected', this.boundHandleAgentSelected);
+        console.log('Removed agent-selected event listener from agent-form');
+        this.eventListenersSetup = false;
+      }
+    }
+  }
+
+  handleAgentSelected(event) {
+    console.log('%c Agent selected event received:', "color: green;", event.detail);
+    const agent = event.detail;
+    if (agent && agent.name) {
+      const newAgentName = agent.name;
+      console.log(`Agent selected: ${newAgentName}`);
+      if (newAgentName !== this.agentName) {
+        console.log(`Agent changed from ${this.agentName} to ${newAgentName}`);
+        this.agentName = newAgentName;
+        this.fetchKnowledgeBases();
+        this.fetchAgentKbSettings();
+      } else {
+        console.log(`Agent name remains the same: ${this.agentName}`);
+      }
+    } else {
+      console.log("No agent name found in event detail");
+      this.agentName = '';
+      this.selectedKbs = [];
+      this.requestUpdate();
+    }
   }
 
   loadAgentName() {
@@ -134,13 +180,16 @@ class KbSettings extends BaseEl {
     } else {
       // Try to get agent name from the form element
       setTimeout(() => {
-        const agentForm = document.querySelector('agent-form');
-        if (agentForm && agentForm.agent && agentForm.agent.name) {
-          this.agentName = agentForm.agent.name;
-          this.fetchKnowledgeBases();
-          this.fetchAgentKbSettings();
-        } else {
-          this.loading = false;
+        const agentEditor = document.querySelector('agent-editor');
+        if (agentEditor && agentEditor.shadowRoot) {
+          const agentForm = agentEditor.shadowRoot.querySelector('agent-form');
+          if (agentForm && agentForm.agent && agentForm.agent.name) {
+            this.agentName = agentForm.agent.name;
+            this.fetchKnowledgeBases();
+            this.fetchAgentKbSettings();
+          } else {
+            this.loading = false;
+          }
         }
       }, 500);
     }
@@ -213,13 +262,13 @@ class KbSettings extends BaseEl {
   }
 
   _render() {
-    console.log("Rendering kb settings")
+    console.log("Rendering kb settings for agent:", this.agentName);
     if (this.loading) {
       return html`<div class="kb-section"><p>Loading knowledge bases...</p></div>`;
     }
 
     if (!this.agentName) {
-      return html`<div class="kb-section"><p>Please save the agent first to configure knowledge base access.</p></div>`;
+      return html`<div class="kb-section"><p>Please select an agent to configure knowledge base access.</p></div>`;
     }
 
     if (this.kbs.length === 0) {
